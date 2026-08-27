@@ -121,7 +121,27 @@ export function retainToolUseResult(toolUseResult) {
       ? toolUseResult.is_error === true || toolUseResult.isError === true || toolUseResult.error !== undefined
       : false;
 
+  // `toolStats` is the SAME two counts under the names a consumer reads them
+  // by. Measured 2026-08-27 over one machine's whole log tree -- 2,155 .jsonl
+  // files, 261 of them top-level sessions -- the harness emitted toolStats on
+  // ZERO of them, so a consumer keying on it scores null for code work on
+  // every session in that corpus, the raw un-de-identified ones included.
+  // One machine is not every machine: read this as "absent here", not as a
+  // claim about the format. §4.1's structuredPatch reconstruction is strictly
+  // better data than the field it is filling, so emitting it here does not
+  // merely preserve the measurement, it supplies one that was not there.
+  //
+  // Two integers, no new information: everything here is already published one
+  // line below under deident's own names. Omitted entirely when the count is
+  // unknown, because §4.3 is that a wrong 0 manufactures an abandoned session
+  // and no test catches it.
+  const stats =
+    typeof d.code_added_lines === 'number' && typeof d.code_removed_lines === 'number'
+      ? { toolStats: { linesAdded: d.code_added_lines, linesRemoved: d.code_removed_lines } }
+      : {};
+
   return Object.freeze({
+    ...stats,
     code_added_lines: d.code_added_lines,
     code_removed_lines: d.code_removed_lines,
     patch_hunks: d.patch_hunks,

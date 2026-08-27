@@ -104,6 +104,9 @@ import { parseCliArgs } from '../src/cli/args.mjs';
 import { checkRuntime, REQUIRED_NODE } from '../src/cli/runtime.mjs';
 import { serializeSessions, resolveOutDir, sanitizeEntryName, stripMintedSpellings, extractProseBySession, stripStructuralSpellings, ENTRY_ROOT } from '../src/pipeline.mjs';
 import { RefusalError, ReadError, UsageError } from '../src/cli/errors.mjs';
+import { buildTable, substituteString, reverseString, allOccurrences, leftIsWordChar, startsOnEscapeBody } from '../src/substitute/engine.mjs';
+import { checkSubstitution, checkSemanticPass, semanticRefusal, coverageRefusal, unverifiedRemainder } from '../src/verify/checks.mjs';
+import { serializeSessions, resolveOutDir, sanitizeEntryName, stripMintedSpellings, extractProseBySession } from '../src/pipeline.mjs';
 
 // Both sides of every fold pair must be Han and nothing else. A pair that
 // slipped in a lookalike from another block would fold text nobody asked about.
@@ -9663,6 +9666,233 @@ const FIXTURES = [
     assert.ok(
       !(doc.checks ?? []).some((c) => c.label === 'secret scan'),
       'a scan that never ran was recorded as a check',
+    );
+  }],
+
+  ['F222', 'the three post-F36 record types are dropped, human-typed title and raw epoch and all', () => {
+    const ctx = newRetentionContext((u) => u);
+    const records = [
+      // Fabricated values, real shapes.
+      { type: 'custom-title', customTitle: 'acme-q3-pricing', sessionId: 's' },
+      { type: 'history-suppression', sessionId: 's', cause: 'fork_inherit', ts: '2026-08-21T07:33:48.127Z' },
+      {
+        type: 'cost-state',
+        sessionId: 's',
+        totalCostUSD: 12.5,
+        totalLinesAdded: 640,
+        totalLinesRemoved: 21,
+        modelUsage: {},
+        startTime: 1787705144708,
+      },
+    ];
+    for (const rec of records) {
+      const out = retainRecord(rec, ctx, null);
+      assert.equal(out.keep, false, `${rec.type} must be dropped`);
+      assert.equal(out.record, null, `${rec.type} must emit no record`);
+    }
+
+    // The point of the drop: none of the three values reaches an export.
+    const serialized = JSON.stringify(records.map((rec) => retainRecord(rec, ctx, null).record));
+    for (const leaked of ['acme-q3-pricing', 'fork_inherit', '1787705144708']) {
+      assert.ok(!serialized.includes(leaked), `${leaked} must not survive`);
+    }
+  }],
+
+  ['F223', 'the second wave of sub-types is dropped, listing and solicitation and session URL and all', () => {
+    const ctx = newRetentionContext((u) => u);
+    const base = { uuid: 'a', sessionId: 's', timestamp: '2026-08-02T04:25:34.573Z', cwd: '/w' };
+    // Fabricated values, real shapes.
+    const attachments = [
+      { type: 'directory', path: '/w/acme', content: 'pricing.md', displayPath: 'acme' },
+      { type: 'task_status', taskId: 't', taskType: 'local_agent', description: 'Audit acme docs', status: 'running' },
+      { type: 'hook_non_blocking_error', hookName: 'SessionStart', stderr: 'acme-secret-path', stdout: '', exitCode: 1, command: 'node x.js' },
+      { type: 'workflow_keyword_request' },
+      { type: 'ultra_effort_exit' },
+      { type: 'pdf_reference', filename: '/w/acme-solicitation-12345.pdf', pageCount: 48, fileSize: 1 },
+      { type: 'already_read_file', filename: '/w/acme-thesis.md', displayPath: 'acme-thesis.md' },
+      { type: 'plan_mode_exit', planFilePath: '/w/plan-acme.md', planExists: false },
+    ];
+    for (const att of attachments) {
+      const out = retainRecord({ ...base, type: 'attachment', attachment: att }, ctx, null);
+      assert.equal(out.keep, false, `attachment ${att.type} must be dropped`);
+    }
+
+    const sys = retainRecord(
+      { ...base, type: 'system', subtype: 'bridge_status',
+        content: '/remote-control is active', url: 'https://claude.ai/code/session_013YhrdKKqWWuYZZ' },
+      ctx, null,
+    );
+    assert.equal(sys.keep, false, 'system/bridge_status must be dropped');
+
+    // The block type is dropped from inside a kept assistant turn, so the turn
+    // survives and the block does not.
+    const turn = retainRecord(
+      { ...base, type: 'assistant', message: { role: 'assistant', model: 'm', content: [
+        { type: 'text', text: 'kept' },
+        { type: 'fallback', from: { model: 'claude-fable-5' }, to: { model: 'claude-opus-5' } },
+      ] } },
+      ctx, null,
+    );
+    assert.equal(turn.keep, true, 'the turn carrying a fallback block must survive');
+    const blocks = turn.record.message.content;
+    assert.equal(blocks.length, 1, 'only the text block survives');
+    assert.equal(blocks[0].type, 'text');
+
+    // None of the identifying values reaches an export.
+    const all = JSON.stringify([
+      ...attachments.map((att) => retainRecord({ ...base, type: 'attachment', attachment: att }, ctx, null).record),
+      sys.record, turn.record,
+    ]);
+    for (const leaked of ['acme-solicitation-12345', 'acme-thesis', 'pricing.md', 'acme-secret-path', 'session_013YhrdKKqWWuYZZ', 'claude-fable-5']) {
+      assert.ok(!all.includes(leaked), `${leaked} must not survive`);
+    }
+  }],
+
+  ['F224', 'a pasted PDF attachment is counted and placeheld, not refused and not shipped', () => {
+    const ctx = newRetentionContext((u) => u);
+    const body = 'JVBERi0xLjYNJeLjz9MN' + 'A'.repeat(500);
+    const rec = {
+      type: 'attachment',
+      uuid: '00000000-0000-4000-8000-000000000001',
+      sessionId: '11111111-1111-4111-8111-111111111111',
+      timestamp: '2026-08-20T10:11:12.345Z',
+      cwd: '/w',
+      attachment: {
+        type: 'file',
+        filename: '/w/solicitation.pdf',
+        content: { type: 'pdf', file: { filePath: '/w/solicitation.pdf', base64: body, originalSize: 206223 } },
+        displayPath: 'solicitation.pdf',
+      },
+    };
+
+    const out = retainRecord(rec, ctx, null);
+    assert.equal(out.keep, true, 'the attachment must survive as a placeholder, not refuse the export');
+    const blocks = out.record.attachment.content;
+    assert.equal(blocks.length, 1, 'one block');
+    assert.equal(blocks[0].type, 'document');
+    assert.ok(!('source' in blocks[0]), 'the source must be gone, not merely shortened');
+    assert.equal(blocks[0].redacted, 'replaced with a placeholder');
+
+    // Counted, so the manifest can state what was withheld.
+    assert.ok(ctx.stats.documents > 0, 'the document must be counted');
+
+    // And the body does not reach the export in any form.
+    assert.ok(!JSON.stringify(out.record).includes(body.slice(0, 40)), 'the base64 body must not survive');
+
+    // A box with neither .content nor .base64 is still a shape nobody reviewed.
+    assert.throws(
+      () => retainRecord({ ...rec, attachment: { ...rec.attachment, content: { type: 'zip', file: { filePath: '/w/x.zip' } } } }, newRetentionContext((u) => u), null),
+      /neither an array nor a string/,
+      'an unreviewed box must still refuse',
+    );
+  }],
+
+  ['F225', 'the four scoring fields survive, and nothing beside them is widened', () => {
+    const ctx = newRetentionContext((u) => u);
+    const base = {
+      type: 'assistant', uuid: 'a', parentUuid: 'b', sessionId: 's',
+      timestamp: '2026-08-20T10:11:12.345Z', cwd: '/w',
+    };
+    const msg = (usage) => ({ role: 'assistant', model: 'm', content: [{ type: 'text', text: 'hi' }], ...(usage ? { usage } : {}) });
+
+    // 1. usage: exactly four integers, and nothing else from the object.
+    const out = retainRecord({
+      ...base, entrypoint: 'cli', isCompactSummary: true,
+      message: msg({
+        input_tokens: 10, output_tokens: 20,
+        cache_creation_input_tokens: 3, cache_read_input_tokens: 4,
+        service_tier: 'standard', server_tool_use: { web_search_requests: 9 },
+      }),
+    }, ctx, null).record;
+    assert.deepEqual(Object.keys(out.message.usage).sort(),
+      ['cache_creation_input_tokens', 'cache_read_input_tokens', 'input_tokens', 'output_tokens'],
+      'usage must be a whitelist of four, not a copy of the object');
+    assert.equal(out.message.usage.input_tokens, 10);
+    assert.ok(!JSON.stringify(out).includes('service_tier'), 'service_tier must not be copied');
+    assert.ok(!JSON.stringify(out).includes('web_search_requests'), 'server_tool_use must not be copied');
+
+    // 2. entrypoint: allowlisted through, anything else dropped.
+    assert.equal(out.entrypoint, 'cli');
+    assert.equal(out.isCompactSummary, true);
+    for (const bad of ['sdk', 'mcp', 'my-custom-harness', 42, null]) {
+      const r = retainRecord({ ...base, entrypoint: bad, message: msg(null) }, ctx, null).record;
+      assert.ok(!('entrypoint' in r), `entrypoint ${String(bad)} must not survive`);
+    }
+
+    // 3. absent stays absent, and a malformed usage is omitted whole rather
+    //    than defaulted -- an absent count is honest, a 0 is a claim.
+    const plain = retainRecord({ ...base, message: msg(null) }, ctx, null).record;
+    assert.ok(!('usage' in plain.message), 'no usage key when the source had none');
+    assert.ok(!('isCompactSummary' in plain), 'no isCompactSummary key when the source had none');
+    for (const bad of [{ input_tokens: 1 }, { input_tokens: -1, output_tokens: 2 },
+                       { input_tokens: 1, output_tokens: 2, cache_read_input_tokens: 'x' }]) {
+      const r = retainRecord({ ...base, message: msg(bad) }, ctx, null).record;
+      assert.ok(!('usage' in r.message), `malformed usage ${JSON.stringify(bad)} must be omitted, not defaulted`);
+    }
+
+    // 4. toolStats carries the same counts under the names a consumer reads.
+    const patch = [{ lines: ['+one', '+two', '-gone'] }];
+    const t = retainRecord({
+      ...base, type: 'user', message: { role: 'user', content: [{ type: 'text', text: 'x' }] },
+      toolUseResult: { structuredPatch: patch },
+    }, ctx, null).record;
+    assert.equal(t.toolUseResult.toolStats.linesAdded, 2);
+    assert.equal(t.toolUseResult.toolStats.linesRemoved, 1);
+    assert.equal(t.toolUseResult.toolStats.linesAdded, t.toolUseResult.code_added_lines,
+      'toolStats and deident\'s own names must be the same measurement');
+
+    // An unknown count emits no toolStats rather than a zero.
+    const unknown = retainRecord({
+      ...base, type: 'user', message: { role: 'user', content: [{ type: 'text', text: 'x' }] },
+      toolUseResult: { someOtherShape: true },
+    }, ctx, null).record;
+    assert.ok(!('toolStats' in unknown.toolUseResult), 'an unknown count must not become 0');
+  }],
+
+  ['F226', 'every vocabulary the export enforces is published on RETENTION_TABLE, so a diagnostic cannot drift from it', () => {
+    // `deident types` answers "will an export refuse, and on what". It is only
+    // trustworthy while it reads the SAME tables retainRecord enforces. A
+    // second copy of a decision list drifts and then reports a type as
+    // reviewed that the export still refuses, which is worse than having no
+    // command at all. This fixture fails the moment a vocabulary is added to
+    // records.mjs without being published here.
+    for (const key of ['topLevel', 'attachmentKeep', 'attachmentDrop', 'systemKeep', 'systemDrop', 'blocks']) {
+      assert.ok(RETENTION_TABLE[key] !== undefined, `RETENTION_TABLE does not publish ${key}`);
+    }
+    const topLevel = Object.keys(RETENTION_TABLE.topLevel);
+    const blocks = Object.keys(RETENTION_TABLE.blocks);
+    assert.ok(topLevel.length > 0 && blocks.length > 0, 'a published vocabulary is empty');
+
+    // The decision for every published name must be one deident acts on. A
+    // typo'd decision reads as reviewed to the diagnostic and refuses at
+    // export.
+    const allowed = new Set(['keep', 'drop', 'drop-counted', 'drop-after-use']);
+    for (const [name, decision] of Object.entries(RETENTION_TABLE.topLevel)) {
+      assert.ok(allowed.has(decision), `top-level ${name} has decision ${JSON.stringify(decision)}, which is not one deident acts on`);
+    }
+  }],
+
+  ['F227', 'a type with no decision is refused rather than guessed, and the refusal names it', () => {
+    // The property `deident types` exists to make cheap to discover. Asserted
+    // here on the enforcement path itself, so the guarantee is the export's,
+    // not the diagnostic's: an unreviewed record type must refuse, and the
+    // refusal must NAME the type, or a reader cannot act on it.
+    const ctx = newRetentionContext((u) => u);
+    const invented = 'zz-not-a-real-record-type';
+    assert.ok(
+      RETENTION_TABLE.topLevel[invented] === undefined,
+      'this fixture needs a type deident has never seen',
+    );
+    let caught = null;
+    try {
+      retainRecord({ type: invented, sessionId: 's1' }, ctx, { file: 'a.jsonl', line: 3 });
+    } catch (err) {
+      caught = err;
+    }
+    assert.ok(caught !== null, 'an unknown record type was accepted instead of refused');
+    assert.ok(
+      String(caught.message).includes(invented),
+      `the refusal does not name the type: ${caught.message}`,
     );
   }],
 

@@ -64,6 +64,28 @@ const TOP_LEVEL = Object.freeze({
   'artifact-comment-monitor': 'drop',
   'artifact-autoreact-ledger': 'drop',
 
+  // Three more that appeared in a live corpus after the two above, caught by
+  // the same refusal. Measured over 261 depth-0 sessions: custom-title 12,319
+  // records, history-suppression 412, cost-state 6.
+  //
+  // `custom-title` is `{customTitle, sessionId}` and customTitle is written by
+  // the HUMAN, so it is the one of the three that can carry a client name or a
+  // person. `ai-title` is already dropped for the machine-written equivalent;
+  // a hand-typed title is strictly more identifying, not less.
+  //
+  // `history-suppression` is `{sessionId, cause, ts}` where cause is a token
+  // such as `fork_inherit`. No user text.
+  //
+  // `cost-state` is per-session bookkeeping: totalCostUSD, the tool durations,
+  // totalLinesAdded/Removed, a modelUsage map and `startTime` as a raw
+  // millisecond epoch. The line counts are tempting -- they are the same
+  // measurement §4.1 reconstructs from structuredPatch -- but startTime alone
+  // would reinstate to the millisecond exactly what quantise() spent the
+  // timestamp budget removing, so the record is dropped whole rather than
+  // filtered. Admitting the counts is a separate decision with its own review.
+  'custom-title': 'drop',
+  'history-suppression': 'drop',
+  'cost-state': 'drop',
 });
 
 // PLAN §3.2. Only three of the 26 carry user text.
@@ -92,6 +114,29 @@ const ATTACHMENT_DROP = Object.freeze([
   'hook_cancelled',
   'workflow_size_guideline_change',
   'dynamic_skill',
+
+  // Eight more from the same live corpus that produced the three top-level
+  // additions. None carries a user turn; several carry identity, which is why
+  // they are dropped rather than left to the reader.
+  //
+  // `directory` is a listing: a path plus the FILE NAMES under it, which is
+  // the client and project vocabulary in its most concentrated form.
+  // `pdf_reference` and `already_read_file` are absolute paths plus a
+  // displayPath; the pdf_reference measured here named a client solicitation document
+  // in the filename alone. `plan_mode_exit` is a plan file path.
+  // `hook_non_blocking_error` carries up to a kilobyte of raw stderr plus the
+  // command line that produced it. `task_status` carries a model-written
+  // description and deltaSummary of the work -- prose, but not the user's.
+  // `workflow_keyword_request` and `ultra_effort_exit` are bare markers with
+  // no payload at all and are dropped for consistency, not for risk.
+  'directory',
+  'task_status',
+  'hook_non_blocking_error',
+  'workflow_keyword_request',
+  'ultra_effort_exit',
+  'pdf_reference',
+  'already_read_file',
+  'plan_mode_exit',
 ]);
 
 // PLAN §3.1 row 9: keep compact_boundary only. away_summary is prose naming
@@ -107,6 +152,13 @@ const SYSTEM_DROP = Object.freeze([
   'scheduled_task_fire',
   'model_consent_fallback',
   'model_refusal_fallback',
+
+  // `bridge_status` is the /remote-control banner. Its `content` is prose, but
+  // the record also carries a live `https://claude.ai/code/session_...` URL
+  // naming an account-scoped session id -- an identifier of exactly the class
+  // §F5 names as the one no detector matches, arriving on a subtype the plan
+  // never listed. Dropped whole.
+  'bridge_status',
 ]);
 
 // `shape-only` is a third decision beside keep and drop, and it exists for one
@@ -121,6 +173,10 @@ const BLOCK_DECISIONS = Object.freeze({
   text: 'keep',
   image: 'drop-counted',
   document: 'drop-counted',
+  // A model-fallback marker, `{from:{model}, to:{model}}`. No text, no
+  // identifier; it is here because an unreviewed block type refuses the export
+  // and this one has now been reviewed.
+  fallback: 'drop',
 });
 
 /**
@@ -227,7 +283,7 @@ export function retainRecord(rec, ctx, where) {
   }
 
   const decision = TOP_LEVEL[rec.type];
-  if (decision === undefined) throw unknown(`top-level record type "${rec.type}"`, where, `type ${rec.type}`, rec);
+  if (decision === undefined) throw unknown(`top-level record type "${rec.type}"`, where, `type ${rec.type}`);
   if (decision !== 'keep') {
     ctx.stats.dropped += 1;
     return DROPPED;
@@ -260,11 +316,62 @@ function retainByType(rec, ctx, where) {
     case 'system':
       return retainSystem(rec, ctx, where);
     default:
-      throw unknown(`top-level record type "${rec.type}"`, where, null, rec);
+      throw unknown(`top-level record type "${rec.type}"`, where);
   }
 }
 
 // ------------------------------------------------------------------- turns
+
+/**
+ * The eight interactive surface names, and nothing else.
+ *
+ * A consumer drops a whole session when `entrypoint` is present and not one of
+ * these, and KEEPS it when the field is absent -- so passing an unknown value
+ * through is the one option that can silently delete a session's worth of
+ * scoring, while dropping the field is the safe direction. An allowlist rather
+ * than a passthrough because the field is a free string in the input and this
+ * table is what makes it non-identifying: eight fixed words, no user content.
+ */
+const INTERACTIVE_ENTRYPOINTS = Object.freeze([
+  'cli', 'claude-desktop', 'claude-desktop-3p', 'claude-vscode',
+  'claude_in_slack', 'remote_desktop', 'remote_mobile', 'ssh-remote',
+]);
+
+function retainEntrypoint(value) {
+  return typeof value === 'string' && INTERACTIVE_ENTRYPOINTS.includes(value) ? value : null;
+}
+
+/**
+ * Per-turn token counts: four non-negative integers, or nothing.
+ *
+ * BRIEF §3 keeps code and prose out; a token count is neither. `usage` also
+ * carries `service_tier`, `server_tool_use` and whatever ships next, so this
+ * is a whitelist of four names rather than a copy of the object -- the same
+ * rule the top-level record follows, for the same reason.
+ *
+ * All-or-nothing on purpose: a consumer that reads three of the four and
+ * defaults the fourth to 0 would report a wrong total as if it were measured,
+ * which is §4.3's dangerous-zero failure in a different field. Absent is
+ * honest, 0 is a claim.
+ */
+function retainUsage(usage) {
+  if (usage === null || typeof usage !== 'object' || Array.isArray(usage)) return null;
+  const int = (v) => (Number.isSafeInteger(v) && v >= 0 ? v : undefined);
+  const input = int(usage.input_tokens);
+  const output = int(usage.output_tokens);
+  if (input === undefined || output === undefined) return null;
+  // The cache pair is genuinely optional upstream; absent means zero, but a
+  // PRESENT-and-malformed value is a broken record, not a zero.
+  const create = usage.cache_creation_input_tokens === undefined ? 0 : int(usage.cache_creation_input_tokens);
+  const read = usage.cache_read_input_tokens === undefined ? 0 : int(usage.cache_read_input_tokens);
+  if (create === undefined || read === undefined) return null;
+  return Object.freeze({
+    input_tokens: input,
+    output_tokens: output,
+    cache_creation_input_tokens: create,
+    cache_read_input_tokens: read,
+  });
+}
 
 function retainTurn(rec, ctx, where) {
   const msg = rec.message;
@@ -292,9 +399,21 @@ function retainTurn(rec, ctx, where) {
     cwd: rec.cwd ?? null,
     isSidechain: rec.isSidechain === true ? true : null,
     isMeta: rec.isMeta === true ? true : null,
+    // Three scoring fields, admitted deliberately and narrowly. Each is a
+    // fixed vocabulary or an integer, so none can carry identity, and each is
+    // read by a consumer that silently degrades without it rather than saying
+    // so. See retainEntrypoint / retainUsage for what is NOT copied.
+    entrypoint: retainEntrypoint(rec.entrypoint),
+    isCompactSummary: rec.isCompactSummary === true ? true : null,
     message: {
       role: msg?.role ?? null,
       model: msg?.model ?? null,
+      // Spread rather than `usage: retainUsage(...)`: prune() is shallow and
+      // only reaches the outer object, so a null here would ship as
+      // `"usage": null` on every turn that has none -- a key that says
+      // "measured, and the answer is nothing" about a measurement that was
+      // never taken. F216 caught exactly that.
+      ...(retainUsage(msg?.usage) === null ? {} : { usage: retainUsage(msg?.usage) }),
       content,
     },
     toolUseResult: distilled,
@@ -348,7 +467,7 @@ function retainBlocks(blocks, ctx, where) {
   for (const block of blocks) {
     if (block === null || typeof block !== 'object') continue;
     const decision = BLOCK_DECISIONS[block.type];
-    if (decision === undefined) throw unknown(`content block type "${block.type}"`, where, `block ${block.type}`, block);
+    if (decision === undefined) throw unknown(`content block type "${block.type}"`, where, `block ${block.type}`);
     if (decision === 'drop') continue;
     if (decision === 'drop-counted') {
       if (block.type === 'image') ctx.stats.images += 1;
@@ -685,7 +804,7 @@ function retainAttachment(rec, ctx, where) {
   if (subtype === undefined) throw unknown('an attachment with no sub-type', where);
   if (ATTACHMENT_DROP.includes(subtype)) return null;
   if (!ATTACHMENT_KEEP.includes(subtype)) {
-    throw unknown(`attachment sub-type "${subtype}"`, where, `attachment ${subtype}`, att);
+    throw unknown(`attachment sub-type "${subtype}"`, where, `attachment ${subtype}`);
   }
 
   // An attachment names the file it came from, so the denial is exact here.
@@ -775,8 +894,36 @@ const nullIfEmpty = (blocks) => (blocks.length === 0 ? null : blocks);
  * name rather than unwrapped on a guess.
  */
 function unwrap(value) {
-  const inner = value === null || typeof value !== 'object' ? undefined : value.file?.content;
-  return inner === undefined ? value : inner;
+  if (value === null || typeof value !== 'object') return value;
+  const inner = value.file?.content;
+  if (inner !== undefined) return inner;
+
+  // The fourth shape, and it is not a text file. A pasted PDF arrives as
+  // `{type:'pdf', file:{filePath, base64, originalSize}}`: same box as the
+  // string form above, but the payload is a base64 body and there is no
+  // `.content` at all, so the line above returned the box and retainContent
+  // refused it by name -- "a file attachment content that is neither an array
+  // nor a string (object)". Measured: one 206 KB PDF, 274,964 base64
+  // characters, and the export stopped on it.
+  //
+  // Refusing is the wrong answer because deident already HAS a reviewed
+  // decision for this exact payload: `document: 'drop-counted'`, which is what
+  // README means by "Dropped: all pasted documents". The bytes are a document
+  // whichever box they arrive in. So the box is converted to the block the
+  // dispatch already knows, and F207's counted-not-shipped guarantee covers it
+  // without a second code path to keep in step.
+  //
+  // A box with neither `.content` nor `.base64` still refuses: a shape nobody
+  // has looked at is not a shape to guess at.
+  const base64 = value.file?.base64;
+  if (typeof base64 === 'string') {
+    const kind = typeof value.type === 'string' ? value.type : 'document';
+    return [{
+      type: 'document',
+      source: { type: 'base64', media_type: kind === 'pdf' ? 'application/pdf' : 'application/octet-stream', data: base64 },
+    }];
+  }
+  return value;
 }
 
 /**
@@ -891,7 +1038,7 @@ function retainSystem(rec, ctx, where) {
   const subtype = rec.subtype ?? null;
   if (subtype === null) throw unknown('a system record with no subtype', where);
   if (SYSTEM_DROP.includes(subtype)) return null;
-  if (!SYSTEM_KEEP.includes(subtype)) throw unknown(`system subtype "${subtype}"`, where, `system ${subtype}`, rec);
+  if (!SYSTEM_KEEP.includes(subtype)) throw unknown(`system subtype "${subtype}"`, where, `system ${subtype}`);
   return prune({
     type: 'system',
     subtype,
@@ -957,43 +1104,19 @@ function prune(obj) {
   return out;
 }
 
-/**
- * The FIELD NAMES of the record that could not be decided, and nothing else.
- *
- * Deciding a new type means knowing whether it carries user text, and the
- * names of its fields answer that: `content` and `text` mean it might,
- * `totalCostUSD` and `accountUuid` mean it does not. Without them the person
- * hitting this refusal has to send their session log to whoever maintains the
- * tool, which is the one thing this tool exists to avoid.
- *
- * Twelve types refused in one colleague's corpus and three of them existed
- * here, so three could be decided from real records and nine could not. That
- * asymmetry is what this prints its way out of.
- *
- * Names only, never values. A field name is structure; a value is the content
- * the refusal is protecting. The list is what goes in an issue.
- */
-function fieldNames(shape) {
-  if (shape === null || typeof shape !== 'object') return [];
-  const keys = Object.keys(shape);
-  if (keys.length === 0) return [];
-  return [`  its fields, names only: ${keys.join(', ')}`, ''];
-}
-
-function unknown(what, where, kind = null, shape = null) {
+function unknown(what, where, kind = null) {
   return new RefusalError(`deident has never seen ${what}`, {
     why: [
       where ? `  ${where.file}  line ${where.line}` : '',
       '',
-      ...fieldNames(shape),
       'deident refuses to guess whether a record it has never seen carries user',
       'text. Every type in the export has an explicit, reviewed decision, and a',
       'silent drop is how the highest-value user turns get lost (BRIEF §4.4).',
     ].filter((l) => l !== ''),
     remedies: [
-      { label: 'Unblock this export now', command: 'deident export --skip-unknown-types' },
-      { label: 'Then report the type and its fields', command: 'file an issue against deident' },
-      { label: 'Or export an older copy of the logs', command: 'deident export --root <older copy>' },
+      { label: 'Report the type above', command: 'file an issue against deident' },
+      { label: 'Or drop just these records', command: 'deident export --skip-unknown-types' },
+      { label: 'Meanwhile, export older logs', command: 'deident export --root <older copy>' },
     ],
     // `unknown` names the class the escape hatch counts. Claude Code ships a
     // new record type every few weeks (§F4 records 2.1.215 -> 2.1.238 inside
