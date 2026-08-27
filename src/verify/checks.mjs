@@ -150,10 +150,51 @@ export function residueRefusal(result) {
         'Nothing was written.',
         '',
         ...firstExamples(scan),
+        ...blamedSpellings(scan),
       ],
-      remedies: [{ label: 'Report with the lines above', command: 'file an issue against deident' }],
+      // Order matters. The old remedy was one line, "file an issue against
+      // deident", which names the ONE cause the operator cannot act on and
+      // hides the one they can. Measured: 13 spellings out of a 2,612-entity
+      // list, every one an ordinary capitalised English word an agent-driven
+      // semantic pass produces, put 10,001 survivals in front of a person who
+      // was then told to report a bug. A colleague spent hours re-running an
+      // export in a shell loop against exactly this.
+      remedies: [
+        { label: 'Most often it is one spelling in the list', command: 'remove the spellings named above from deident-entities.json' },
+        { label: 'If none of them look like a name you declared', command: 'file an issue against deident' },
+      ],
     },
   );
+}
+
+/**
+ * Which declared spellings account for the survivals.
+ *
+ * A residue refusal has two causes and they need opposite actions: an ordering
+ * or overlap bug in the substituter, which the operator can do nothing about,
+ * and a spelling in their own list that matches the archive's structure or an
+ * ordinary word, which only they can fix. Concentration separates them. A
+ * handful of spellings carrying nearly all the hits is the second case, and
+ * the operator needs the names to act, so the names are printed.
+ *
+ * The spellings are the operator's own declarations, already sitting in a file
+ * they wrote, so printing them discloses nothing the excerpt rule guards. The
+ * excerpts stay redacted to 40 characters as before.
+ */
+function blamedSpellings(scan) {
+  const hits = scan.entityHits ?? [];
+  if (hits.length === 0) return [];
+  const bySpelling = new Map();
+  for (const h of hits) bySpelling.set(h.spelling, (bySpelling.get(h.spelling) ?? 0) + 1);
+  const ranked = [...bySpelling].sort((a, b) => b[1] - a[1]);
+  const top = ranked.slice(0, EXAMPLES_PER_REPORT);
+  const covered = top.reduce((n, [, c]) => n + c, 0);
+  return [
+    '',
+    `${ranked.length} declared spelling${ranked.length === 1 ? '' : 's'} account for these, ` +
+      `${covered} of ${hits.length} from the ${top.length} below:`,
+    ...top.map(([spelling, count]) => `  ${String(count).padStart(6)}  ${spelling}`),
+  ];
 }
 
 /**

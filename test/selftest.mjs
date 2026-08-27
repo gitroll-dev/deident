@@ -34,7 +34,7 @@ import {
 import { buildTable, substituteString, reverseString, allOccurrences, leftIsWordChar, startsOnEscapeBody, bucketAt, longestMatchAt, sourceCharsMatching, foldLower } from '../src/substitute/engine.mjs';
 import { probeCounts, probeOutliers } from '../src/entities/probe.mjs';
 import { substituteRecord } from '../src/substitute/walker.mjs';
-import { checkSubstitution, checkSemanticPass, semanticRefusal, coverageRefusal, unverifiedRemainder } from '../src/verify/checks.mjs';
+import { checkSubstitution, checkSemanticPass, semanticRefusal, coverageRefusal, unverifiedRemainder, residueRefusal } from '../src/verify/checks.mjs';
 import { checkDeclaredValues } from '../src/verify/declared.mjs';
 import { residualScan, startsInsideEscape, jsonEscaped } from '../src/verify/residual.mjs';
 import { distillToolResult, retainToolUseResult } from '../src/retain/toolresult.mjs';
@@ -101,7 +101,7 @@ import { CANDIDATE_CHUNK_CHARS, DENIED_CONTENT, DENIED_TEXT } from '../src/retai
 import { DICTIONARY_FILENAME, mergeEntities } from '../src/policy/dictionary.mjs';
 import { parseCliArgs } from '../src/cli/args.mjs';
 import { checkRuntime, REQUIRED_NODE } from '../src/cli/runtime.mjs';
-import { serializeSessions, resolveOutDir, sanitizeEntryName, stripMintedSpellings, extractProseBySession } from '../src/pipeline.mjs';
+import { serializeSessions, resolveOutDir, sanitizeEntryName, stripMintedSpellings, extractProseBySession, stripStructuralSpellings, ENTRY_ROOT } from '../src/pipeline.mjs';
 import { RefusalError, ReadError, UsageError } from '../src/cli/errors.mjs';
 
 // Both sides of every fold pair must be Han and nothing else. A pair that
@@ -9394,6 +9394,85 @@ const FIXTURES = [
     }
   }],
 
+
+  ['F215', 'a declared spelling that is a field name in the archive is dropped, not substituted', () => {
+    // Entity matching is case-insensitive and substitution runs over the
+    // serialized JSON, so a declared `Model` replaces the key `"model"` in
+    // every record. The structure is destroyed, the residue gate then finds
+    // thousands of survivals, and the export refuses at the last step.
+    //
+    // Measured on a 2,612-entity list of the size an agent-driven semantic pass
+    // produces: 13 spellings did that, every one an ordinary capitalised
+    // English word, 10,001 survivals, and no number of re-runs could ever
+    // succeed. That export now completes.
+    const records = [
+      {
+        type: 'assistant',
+        uuid: 'u1',
+        sessionId: 's1',
+        message: { role: 'assistant', model: null, content: [{ type: 'text', text: 'Model Nakamura wrote it' }] },
+      },
+    ];
+    const declared = [
+      { kind: 'person', spellings: ['Model'], confidence: 'high' },
+      { kind: 'person', spellings: ['Null'], confidence: 'high' },
+      { kind: 'person', spellings: ['Sessions'], confidence: 'high' },
+      { kind: 'person', spellings: ['tool_use'], confidence: 'high' },
+      { kind: 'person', spellings: ['Model Nakamura', 'Nakamura'], confidence: 'high' },
+    ];
+    const { entities, dropped } = stripStructuralSpellings(declared, records);
+
+    const kept = entities.flatMap((e) => e.spellings);
+    // A field name deident emits.
+    assert.ok(!kept.includes('Model'), 'a field name survived into the entity table');
+    // A JSON literal: matching is case-insensitive, so this eats every null.
+    assert.ok(!kept.includes('Null'), 'a JSON literal survived into the entity table');
+    // The archive entry names are scanned for residue too.
+    assert.ok(!kept.includes('Sessions'), `the entry root ${ENTRY_ROOT} survived into the entity table`);
+    // The closed vocabulary the retention table emits as VALUES.
+    assert.ok(!kept.includes('tool_use'), 'a retention-table value survived into the entity table');
+
+    // And the half that matters more: a real name is untouched, including one
+    // whose first word is a field name. Only the exact spelling goes.
+    assert.ok(kept.includes('Model Nakamura'), 'a real name beginning with a field name was dropped');
+    assert.ok(kept.includes('Nakamura'), 'a real name was dropped');
+    assert.equal(entities.length, 1, 'entities left with no spellings must not be kept as empty ones');
+
+    // Every drop is named, or the operator cannot tell a substitution they
+    // asked for from one that silently did not happen.
+    assert.equal(dropped.length, 4, `expected four named drops, got ${JSON.stringify(dropped)}`);
+    for (const d of dropped) assert.match(d, /^person: /, 'a drop does not say which entity it came from');
+  }],
+
+  ['F216', 'a residue refusal names the declared spellings responsible', () => {
+    // The remedy used to be one line, "file an issue against deident", which
+    // names the ONE cause an operator cannot act on and hides the one they can.
+    // A colleague re-ran an export in a shell loop for hours against a refusal
+    // whose cause was three words in a list an agent had written for them.
+    const scan = {
+      entityCount: 4175,
+      uuidCount: 0,
+      entityHits: [
+        ...Array.from({ length: 4057 }, () => ({ spelling: 'Null', excerpt: 'x', form: 'null', entityId: 'e1' })),
+        ...Array.from({ length: 81 }, () => ({ spelling: 'True', excerpt: 'x', form: 'true', entityId: 'e2' })),
+        ...Array.from({ length: 37 }, () => ({ spelling: 'Sessions', excerpt: 'x', form: 'sessions', entityId: 'e3' })),
+      ],
+      uuidHits: [],
+    };
+    const err = residueRefusal({ scan });
+    const text = [err.reason ?? '', ...(err.why ?? []), ...(err.remedies ?? []).map((r) => `${r.label} ${r.command}`)].join(String.fromCharCode(10));
+
+    for (const spelling of ['Null', 'True', 'Sessions']) {
+      assert.ok(text.includes(spelling), `the refusal does not name ${spelling}, so the operator cannot act on it`);
+    }
+    assert.ok(text.includes('4057'), 'the refusal does not say how many each spelling accounts for');
+    assert.ok(
+      text.includes('deident-entities.json'),
+      'the refusal does not offer the remedy the operator can actually apply',
+    );
+    // The bug-report remedy stays, second: sometimes it really is deident.
+    assert.ok(text.includes('file an issue against deident'), 'the bug-report remedy was removed entirely');
+  }],
 
 ];
 

@@ -931,7 +931,13 @@ export async function runExport(flags, env) {
       `entity spelling ignored, it is a uuid deident minted rather than one from your sessions: ${d}`,
     );
   }
-  const tier1Entities = minted.entities.map((e) => withCleanedSpellings(e, tier0Table, flags.namespace));
+  const structural = stripStructuralSpellings(minted.entities, cleaned.records);
+  for (const d of structural.dropped) {
+    report.renderWarning(
+      `entity spelling ignored, it is a field name in the archive rather than a name in your prose: ${d}`,
+    );
+  }
+  const tier1Entities = structural.entities.map((e) => withCleanedSpellings(e, tier0Table, flags.namespace));
   const tier1Assigned = assignPseudonyms(tier1Entities, salt, flags.namespace, { taken: tier0.taken });
   const tier1Table = buildTable(tier1Assigned.entities, { forbidInside: pseudonymGuardPattern(flags.namespace) });
   report.renderPhase(`Substituting ${tier1Table.size.toLocaleString('en-US')} tier-1 spellings`);
@@ -1684,6 +1690,110 @@ export function stripMintedSpellings(entities, minted) {
   return { entities: Object.freeze(out), dropped: Object.freeze(dropped) };
 }
 
+/**
+ * Drop a spelling that is a FIELD NAME in the archive rather than a name in
+ * the prose.
+ *
+ * Entity matching is case-insensitive, and substitution runs over the
+ * serialized JSON, so declaring `Model` replaces the key `"model"` in every
+ * record. The structure is destroyed, the residue gate then finds thousands of
+ * survivals, and the export refuses at the last step with a message telling
+ * the operator to file an issue against deident. Measured: 13 spellings out of
+ * a 2,612-entity list produced 10,001 survivals and a hard refusal after 66
+ * seconds of work. The 13 were `Status`, `Mode`, `Skill`, `Name`, `Query`,
+ * `Model`, `User`, `Action`, `Data`, `Path`, `Type` and `Input`: every one an
+ * ordinary capitalised English word, which is exactly what an agent-driven
+ * semantic pass over a large corpus produces.
+ *
+ * Same shape as stripMintedSpellings above, and for the same reason: one of
+ * these makes the residue gate refuse against the tool's own scaffolding, so
+ * it is taken out before anything downstream sees the list. Dropped and
+ * warned, not refused, because refusing leaves the operator with an export
+ * that cannot complete until they hand-edit a list an agent wrote.
+ *
+ * The key set is COLLECTED FROM THE RECORDS, never listed here. A hand-written
+ * list of field names is a second copy of the retention tables and would go
+ * stale the first time a record type gained a field.
+ *
+ * A real person called Model loses their substitution and the warning says so
+ * by name. That is the honest trade: the alternative replaces the word
+ * everywhere it appears as structure, which does not redact them either and
+ * destroys the archive as well.
+ */
+/**
+ * The directory every archive entry sits under. Named once, because
+ * stripStructuralSpellings has to know it and a second copy of it would be a
+ * second list.
+ */
+export const ENTRY_ROOT = 'sessions';
+
+export function stripStructuralSpellings(entities, records) {
+  const keys = new Set();
+  // The JSON literals. Substitution runs over the serialized bytes and matching
+  // is case-insensitive, so a declared `Null` replaces every `null` in the
+  // archive. Measured on a 2,612-entity list: `Null` alone produced 4,057
+  // survivals, `True` 81. These three are language constants rather than a
+  // list anybody maintains, which is why they can be written here.
+  for (const literal of ['null', 'true', 'false']) keys.add(literal);
+  // The archive's entry names are scanned for residue too, so the directory
+  // every entry sits under is structure the same way a field name is. Measured:
+  // a declared `Sessions` produced 37 survivals against `sessions/…/…jsonl`.
+  keys.add(ENTRY_ROOT);
+  // The closed vocabulary deident emits as VALUES: record types, block
+  // decisions, attachment sub-types, system sub-types. Read from the retention
+  // table itself, never copied, so a new record type is covered the day it is
+  // added rather than the day someone remembers this function.
+  // Both halves. The block table's KEYS are the type names deident emits into
+  // the archive (`tool_use`, `attachment`) and its VALUES are the decisions
+  // (`keep`, `shape-only`); a declared spelling colliding with either one is
+  // structure. Taking only the values missed `tool_use`, which is a type name
+  // and appears in every assistant record.
+  const vocabulary = (v) => {
+    if (typeof v === 'string') {
+      keys.add(v.toLowerCase());
+      return;
+    }
+    if (Array.isArray(v)) {
+      for (const x of v) vocabulary(x);
+      return;
+    }
+    if (v && typeof v === 'object') {
+      for (const [k, x] of Object.entries(v)) {
+        keys.add(k.toLowerCase());
+        vocabulary(x);
+      }
+    }
+  };
+  vocabulary(RETENTION_TABLE);
+  const walk = (n) => {
+    if (Array.isArray(n)) {
+      for (const v of n) walk(v);
+      return;
+    }
+    if (n === null || typeof n !== 'object') return;
+    for (const [k, v] of Object.entries(n)) {
+      keys.add(k.toLowerCase());
+      walk(v);
+    }
+  };
+  walk(records);
+  if (keys.size === 0) return { entities, dropped: Object.freeze([]) };
+
+  const dropped = [];
+  const out = [];
+  for (const e of entities) {
+    const all = e.spellings ?? [];
+    const kept = all.filter((sp) => !keys.has(String(sp).toLowerCase()));
+    if (kept.length === all.length) {
+      out.push(e);
+      continue;
+    }
+    for (const sp of all) if (keys.has(String(sp).toLowerCase())) dropped.push(`${e.kind}: ${sp}`);
+    if (kept.length > 0) out.push(Object.freeze({ ...e, spellings: Object.freeze(kept) }));
+  }
+  return { entities: Object.freeze(out), dropped: Object.freeze(dropped) };
+}
+
 function withCleanedSpellings(entity, tier0Table, namespace = null) {
   if (entity.rejected || entity.spellings.length === 0) return entity;
   const forms = new Set(entity.spellings);
@@ -1923,7 +2033,7 @@ export function serializeSessions(sessions, table, rewriteUuid) {
       rewriteUuid,
     );
     const id = rewriteUuid(s.file.sessionId) ?? s.file.sessionId;
-    const name = `sessions/${sanitizeEntryName(entryDir(dir, s.workspace.key))}/${sanitizeEntryName(id)}.jsonl`;
+    const name = `${ENTRY_ROOT}/${sanitizeEntryName(entryDir(dir, s.workspace.key))}/${sanitizeEntryName(id)}.jsonl`;
     entries.push({ name, data: body, source: s.file.sessionId });
     parts.push(body, name, '\n');
   }
