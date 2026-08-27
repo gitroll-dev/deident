@@ -140,6 +140,35 @@ export function checkResidue(bytes, table, knownUuids) {
   });
 }
 
+/**
+ * A credential the entity table could never have known about survived.
+ *
+ * Unlike the residue refusal below, this one is almost never the operator's
+ * list: the detector list is not theirs and the finding is a shape, so the
+ * remedy is to look at what was found and then decide whether that session
+ * should ship at all.
+ */
+export function secretRefusal(result) {
+  const n = result.findings.length;
+  return new RefusalError(`${n} credential${n === 1 ? ' was' : 's were'} found in the archive that was about to ship`, {
+    why: [
+      'The zip was deleted. A credential does not become safe by being in a file',
+      'nobody has opened yet.',
+      '',
+      // The excerpt is already cut to 12 characters at the source: enough to
+      // find it in the session, never enough to use it.
+      ...result.findings
+        .slice(0, EXAMPLES_PER_REPORT)
+        .map((f) => `  ${f.detector}  ${f.entry}  ${f.excerpt}`),
+      ...(n > EXAMPLES_PER_REPORT ? [`  … and ${n - EXAMPLES_PER_REPORT} more`] : []),
+    ],
+    remedies: [
+      { label: 'Find it in the session and rotate it', command: 'the entry name above says which session' },
+      { label: 'Then drop that session or remove the value', command: 'deident triage' },
+    ],
+  });
+}
+
 export function residueRefusal(result) {
   const scan = result.scan;
   return new RefusalError(

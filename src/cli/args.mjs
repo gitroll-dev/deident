@@ -27,6 +27,7 @@ const FLAGS = Object.freeze({
   'skip-unclassified': { type: 'boolean', commands: ['export'] },
   'skip-unreadable': { type: 'boolean', commands: ['scan', 'export'] },
   'skip-unknown-types': { type: 'boolean', commands: ['scan', 'export'] },
+  'skip-secret-scan': { type: 'boolean', commands: ['export'] },
   'include-denied': { type: 'string', multiple: true, commands: ['export'] },
   // An encoding of the values already in hand at each render call, not a
   // second code path. The settled operator is an agent, and the alternative is
@@ -189,6 +190,7 @@ export function parseCliArgs(argv) {
       skipUnclassified: values['skip-unclassified'] === true,
       skipUnreadable: values['skip-unreadable'] === true,
       skipUnknownTypes: values['skip-unknown-types'] === true,
+      skipSecretScan: values['skip-secret-scan'] === true,
       includeDenied: Object.freeze([...includeDenied]),
       json: values.json === true,
       apply: values.apply === true,

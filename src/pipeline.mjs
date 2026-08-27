@@ -75,6 +75,7 @@ import {
   substitutionRefusal,
   checkResidue,
   residueRefusal,
+  secretRefusal,
   checkSemanticPass,
   semanticRefusal,
   coverageRefusal,
@@ -83,6 +84,7 @@ import {
   unverifiedRemainder,
 } from './verify/checks.mjs';
 import { checkDeclaredValues } from './verify/declared.mjs';
+import { scanForSecrets } from './verify/secretscan.mjs';
 import { writeZip, readZipFile, safeUnlink } from './output/zip.mjs';
 import { writePreview } from './output/preview.mjs';
 import { EXAMPLES_PER_REPORT, MIN_REPLAY_MATCH_CHARS } from './retain/constants.mjs';
@@ -1169,6 +1171,26 @@ export async function runExport(flags, env) {
     );
     report.renderOnDiskResidue(shipped.length, onDisk);
     if (!onDisk.ok) throw residueRefusal(onDisk);
+
+    // The credential half of the same idea, over the same bytes.
+    //
+    // The residue check knows only the entity table; docs/limits.md states the
+    // other half plainly, that "a credential with no listed vendor prefix and
+    // no label beside it is not detected", because the shipped patterns are
+    // hand-written. This hands the shipped entries to a scanner that maintains
+    // hundreds of detectors, with verification off so nothing leaves the
+    // machine, and refuses on a finding.
+    //
+    // Optional, and its absence is printed rather than assumed. Measured on the
+    // archive shipped 2026-08-27: 0 findings over 41 entries in 7.4 seconds,
+    // with a pseudonym, a rewritten uuid and an md5 planted beside real keys to
+    // check it does not cry wolf on deident's own output. §F7 is why that was
+    // measured before it was allowed to refuse.
+    const secrets = flags.skipSecretScan
+      ? { ran: false, why: 'you passed --skip-secret-scan', findings: [], seconds: 0 }
+      : scanForSecrets(shipped);
+    report.renderSecretScan(secrets);
+    if (secrets.findings.length > 0) throw secretRefusal(secrets);
     // privacy-tiers 4 level 3 needs attribution: "this entry is that session".
     // Without it the last look cannot act, because every id in the archive has
     // already been rewritten and nothing on this machine says which is which.

@@ -11,6 +11,7 @@ import path from 'node:path';
 
 import { DeidentError, ReadError, UsageError } from './errors.mjs';
 import { limitLines } from './limits.mjs';
+import { SCANNER } from '../verify/secretscan.mjs';
 
 export const VERSION = '0.2.1';
 
@@ -220,6 +221,8 @@ Flags
   --namespace <TAG>        export: shift the pseudonym namespace, e.g. X
   --skip-unclassified      export: confirm unclassified workspaces stay out
   --skip-unreadable        scan/export: continue past an unparseable line
+  --skip-secret-scan       export: do not run the credential scanner over the
+                           finished archive. It costs about 5s. Printed when used.
   --skip-unknown-types     scan/export: drop records of a type deident has
                            never seen, and list them in the manifest
   --include-denied <name>  export: typed confirmation for one denied workspace
@@ -879,6 +882,48 @@ export function renderOnDiskResidue(entryCount, check) {
     return;
   }
   say(`    ${pad('archive on disk', 23)} ${n(entryCount)} entries read back, ${check.detail}${check.ok ? '   ok' : '   FAILED'}`);
+}
+
+/**
+ * Whether the credential scan ran, printed whether it did or not.
+ *
+ * The "not run" case is the one that matters. A gate whose absence is silent is
+ * worse than no gate: the `0 secrets` row above would read as "scanned and
+ * clean" to the person deciding whether to send the file, when nothing looked.
+ */
+export function renderSecretScan(result) {
+  // A scan that did not run is NOT a failed check, and must not be rendered as
+  // one: an operator without the binary would see a FAILED row on every export,
+  // and §F7's failure mode is a check that cries wolf being switched off. It is
+  // also not a passing check, which is the other half of the same honesty. So
+  // it is not a check row at all until it has actually looked, and its absence
+  // is a warning, which is the surface for "you have less than you think".
+  if (!result.ran) {
+    if (machine !== null) {
+      machineAdd({
+        secretScan: { ran: false, why: result.why },
+        warnings: [...(machine.warnings ?? []), `secret scan did not run: ${result.why}`],
+      });
+      return;
+    }
+    warn(`  ! secret scan did not run: ${result.why}`);
+    return;
+  }
+  if (machine !== null) {
+    machineAdd({
+      secretScan: { ran: true, findings: result.findings.length, seconds: result.seconds },
+      checks: [
+        ...(machine.checks ?? []),
+        { label: 'secret scan', ok: result.findings.length === 0, detail: `${result.findings.length} findings from ${SCANNER}` },
+      ],
+    });
+    return;
+  }
+  const count = result.findings.length;
+  say(
+    `    ${pad('secret scan', 23)} ${n(count)} finding${count === 1 ? '' : 's'} from ${
+      SCANNER}, ${result.seconds.toFixed(1)}s${count === 0 ? '   ok' : '   FAILED'}`,
+  );
 }
 
 export function renderNote(text) {

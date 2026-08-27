@@ -36,6 +36,7 @@ import { probeCounts, probeOutliers } from '../src/entities/probe.mjs';
 import { substituteRecord } from '../src/substitute/walker.mjs';
 import { checkSubstitution, checkSemanticPass, semanticRefusal, coverageRefusal, unverifiedRemainder, residueRefusal } from '../src/verify/checks.mjs';
 import { checkDeclaredValues } from '../src/verify/declared.mjs';
+import { scanForSecrets, secretScanLine, SCANNER } from '../src/verify/secretscan.mjs';
 import { residualScan, startsInsideEscape, jsonEscaped } from '../src/verify/residual.mjs';
 import { distillToolResult, retainToolUseResult } from '../src/retain/toolresult.mjs';
 import { newRetentionContext, retainRecord, quantise, rewriteUuidsInRecord, deniedReason,
@@ -446,7 +447,7 @@ function writableByThisProcess(file) {
  * @returns {{code: number, out: string, candidateBytes: number}}
  */
 function primeSemanticPass(root, out, saltDir, env = null, extra = []) {
-  const r = runCli(['export', '--root', root, '--out', out, '--salt-dir', saltDir, ...extra], env);
+  const r = runCli(['export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir, ...extra], env);
   assert.equal(r.code, 1, `the priming run should refuse for want of an entity list: ${r.out}`);
   const file = path.join(out, 'deident-candidates.txt');
   const candidateBytes = fs.existsSync(file) ? fs.statSync(file).size : 0;
@@ -2123,7 +2124,7 @@ const FIXTURES = [
     primeSemanticPass(root, out, saltDir, CORPUS_USER_ENV);
 
     const exported = runCli([
-      'export', '--root', root, '--out', out, '--salt-dir', saltDir,
+      'export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir,
       '--entities', path.join(root, 'ents.json'),
     ], CORPUS_USER_ENV);
     assert.equal(exported.code, 0, exported.out);
@@ -2178,7 +2179,7 @@ const FIXTURES = [
     setTier(path.join(out, 'review.md'), 'alpha', 'redact');
     setTier(path.join(out, 'review.md'), 'auditor-notes', 'redact');
     const args = [
-      'export', '--root', root, '--out', out, '--salt-dir', saltDir,
+      'export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir,
       '--entities', path.join(root, 'ents.json'),
     ];
 
@@ -2221,7 +2222,7 @@ const FIXTURES = [
     runCli(['scan', '--root', empty, '--out', emptyOut, '--salt-dir', path.join(empty, 'salt')]);
     setTier(path.join(emptyOut, 'review.md'), 'beta', 'redact');
     const refused = runCli([
-      'export', '--root', empty, '--out', emptyOut, '--salt-dir', path.join(empty, 'salt'),
+      'export', '--skip-secret-scan', '--root', empty, '--out', emptyOut, '--salt-dir', path.join(empty, 'salt'),
       '--entities', path.join(empty, 'ents.json'),
     ]);
     assert.equal(refused.code, 1, refused.out);
@@ -2244,7 +2245,7 @@ const FIXTURES = [
     // type before it ever reaches the step that puts prose in front of a reader.
     primeSemanticPass(root, out, saltDir, null, ['--skip-unknown-types']);
     const args = [
-      'export', '--root', root, '--out', out, '--salt-dir', saltDir,
+      'export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir,
       '--entities', path.join(root, 'ents.json'),
     ];
 
@@ -2377,7 +2378,7 @@ const FIXTURES = [
     setTier(path.join(out, 'review.md'), 'alpha', 'redact');
     primeSemanticPass(root, out, saltDir);
     const args = [
-      'export', '--root', root, '--out', out, '--salt-dir', saltDir,
+      'export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir,
       '--entities', path.join(root, 'ents.json'),
     ];
 
@@ -2791,7 +2792,7 @@ const FIXTURES = [
     // command, and guessing a tier is how an excluded workspace ships.
     fs.writeFileSync(path.join(out, 'review.md'), ['## workspaces', 'perhaps alpha 1 sessions'].join(NL) + NL, 'utf8');
     const exported = runCli([
-      'export', '--root', root, '--out', out, '--salt-dir', saltDir,
+      'export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir,
       '--entities', path.join(root, 'ents.json'),
     ]);
     assert.equal(exported.code, 1, exported.out);
@@ -2844,7 +2845,7 @@ const FIXTURES = [
     const saltDir = path.join(root, 'salt');
     writeCorpus(root);
     const args = (out) => [
-      'export', '--root', root, '--out', out, '--salt-dir', saltDir,
+      'export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir,
       '--entities', path.join(root, 'ents.json'),
     ];
 
@@ -2933,7 +2934,7 @@ const FIXTURES = [
     runCli(['scan', '--root', root, '--out', out, '--salt-dir', saltDir]);
     setTier(path.join(out, 'review.md'), 'alpha', 'redact');
     const exported = runCli([
-      'export', '--root', root, '--out', out, '--salt-dir', saltDir,
+      'export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir,
       '--entities', path.join(root, 'ents.json'),
     ]);
     assert.equal(exported.code, 1, exported.out);
@@ -3210,7 +3211,7 @@ const FIXTURES = [
     setTier(path.join(out, 'review.md'), 'alpha', 'redact');
     primeSemanticPass(root, out, saltDir);
     const exported = runCli([
-      'export', '--root', root, '--out', out, '--salt-dir', saltDir,
+      'export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir,
       '--entities', path.join(root, 'ents.json'),
     ]);
     assert.equal(exported.code, 0, exported.out);
@@ -3424,7 +3425,7 @@ const FIXTURES = [
     setTier(path.join(out, 'review.md'), 'alpha', 'redact');
     primeSemanticPass(root, out, saltDir);
     const exported = runCli([
-      'export', '--root', root, '--out', out, '--salt-dir', saltDir,
+      'export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir,
       '--entities', path.join(root, 'ents.json'),
     ]);
     assert.equal(exported.code, 0, exported.out);
@@ -3856,7 +3857,7 @@ const FIXTURES = [
     setTier(path.join(out, 'review.md'), 'alpha', 'redact');
     primeSemanticPass(root, out, saltDir);
     const exported = runCli([
-      'export', '--root', root, '--out', out, '--salt-dir', saltDir,
+      'export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir,
       '--entities', path.join(root, 'ents.json'),
     ]);
     assert.equal(exported.code, 0, exported.out);
@@ -3907,7 +3908,7 @@ const FIXTURES = [
 
     // A refusal answers in the same envelope, and keeps its exit code. An agent
     // that has to tell "refused" from "crashed" by reading prose cannot.
-    const refused = runCli(['export', '--root', root, '--out', out, '--salt-dir', saltDir, '--json']);
+    const refused = runCli(['export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir, '--json']);
     assert.notEqual(refused.code, 0);
     const errDoc = parseOne(refused.out, 'refusal');
     assert.equal(errDoc.ok, false);
@@ -3921,7 +3922,7 @@ const FIXTURES = [
     setTier(path.join(out, 'review.md'), 'alpha', 'redact');
     primeSemanticPass(root, out, saltDir);
     const ok = runCli([
-      'export', '--root', root, '--out', out, '--salt-dir', saltDir, '--json',
+      'export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir, '--json',
       '--entities', path.join(root, 'ents.json'),
     ]);
     assert.equal(ok.code, 0, ok.out);
@@ -4176,7 +4177,7 @@ const FIXTURES = [
 
     primeSemanticPass(root, first, saltDir);
     const exported = runCli([
-      'export', '--root', root, '--out', first, '--salt-dir', saltDir,
+      'export', '--skip-secret-scan', '--root', root, '--out', first, '--salt-dir', saltDir,
       '--entities', path.join(root, 'ents.json'),
     ]);
     assert.equal(exported.code, 0, exported.out);
@@ -5274,7 +5275,7 @@ const FIXTURES = [
     primeSemanticPass(root, out, saltDir, CORPUS_USER_ENV);
 
     const first = runCli([
-      'export', '--root', root, '--out', out, '--salt-dir', saltDir,
+      'export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir,
       '--entities', path.join(root, 'ents.json'),
     ], CORPUS_USER_ENV);
     assert.equal(first.code, 0, first.out);
@@ -5293,7 +5294,7 @@ const FIXTURES = [
     );
 
     // The second run supplies no entity list at all and still exports.
-    const second = runCli(['export', '--root', root, '--out', out, '--salt-dir', saltDir], CORPUS_USER_ENV);
+    const second = runCli(['export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir], CORPUS_USER_ENV);
     assert.equal(second.code, 0, `the second run should need no --entities: ${second.out}`);
     assert.match(second.out, /dictionary/, 'the report must say where the entities came from');
 
@@ -5389,7 +5390,7 @@ const FIXTURES = [
     const primed = primeSemanticPass(root, out, saltDir, CORPUS_USER_ENV);
 
     const exported = runCli([
-      'export', '--root', root, '--out', out, '--salt-dir', saltDir,
+      'export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir,
       '--entities', path.join(root, 'ents.json'),
     ], CORPUS_USER_ENV);
     assert.equal(exported.code, 0, exported.out);
@@ -5398,7 +5399,7 @@ const FIXTURES = [
     // session that was already read and approved.
     appendTurn(root, second, corpus.cwd, 'PROSE-TYPED-AFTER-THE-LAST-READ');
 
-    const refused = runCli(['export', '--root', root, '--out', out, '--salt-dir', saltDir], CORPUS_USER_ENV);
+    const refused = runCli(['export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir], CORPUS_USER_ENV);
     assert.equal(refused.code, 1, `an unread session must refuse the export: ${refused.out}`);
     assert.match(refused.out, /semantic pass/, 'the refusal names what has not happened');
     assert.ok(refused.out.includes(second), `the refusal must name the session: ${refused.out}`);
@@ -5441,7 +5442,7 @@ const FIXTURES = [
 
     // Missing: the run refuses for want of an entity list, which is the FIRST
     // RUN refusal and names the candidates file, not the dictionary.
-    const missing = runCli(['export', '--root', root, '--out', out, '--salt-dir', saltDir], CORPUS_USER_ENV);
+    const missing = runCli(['export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir], CORPUS_USER_ENV);
     assert.equal(missing.code, 1, missing.out);
     assert.doesNotMatch(missing.out, /dictionary/i, `a missing dictionary is not an error: ${missing.out}`);
 
@@ -5461,7 +5462,7 @@ const FIXTURES = [
       ].join(NL),
       'utf8',
     );
-    const broken = runCli(['export', '--root', root, '--out', out, '--salt-dir', saltDir], CORPUS_USER_ENV);
+    const broken = runCli(['export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir], CORPUS_USER_ENV);
     assert.equal(broken.code, 1, broken.out);
     assert.match(broken.out, /line 4/, `the refusal must name the line: ${broken.out}`);
     assert.match(broken.out, /entities\.json/, 'and the file');
@@ -5473,7 +5474,7 @@ const FIXTURES = [
       JSON.stringify({ entities: [{ kind: 'person', spellings: ['Grace Hopper'] }, { kind: 'person' }] }, null, 2),
       'utf8',
     );
-    const noSpellings = runCli(['export', '--root', root, '--out', out, '--salt-dir', saltDir], CORPUS_USER_ENV);
+    const noSpellings = runCli(['export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir], CORPUS_USER_ENV);
     assert.equal(noSpellings.code, 1, noSpellings.out);
     assert.match(noSpellings.out, /entities\[1\]/, `the refusal must name the entry: ${noSpellings.out}`);
   }],
@@ -5495,7 +5496,7 @@ const FIXTURES = [
     primeSemanticPass(root, out, saltDir, CORPUS_USER_ENV);
 
     const first = runCli([
-      'export', '--root', root, '--out', out, '--salt-dir', saltDir,
+      'export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir,
       '--entities', path.join(root, 'ents.json'),
     ], CORPUS_USER_ENV);
     assert.equal(first.code, 0, first.out);
@@ -5525,7 +5526,7 @@ const FIXTURES = [
       'utf8',
     );
     const second = runCli([
-      'export', '--root', root, '--out', out, '--salt-dir', saltDir, '--entities', declared,
+      'export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir, '--entities', declared,
     ], CORPUS_USER_ENV);
     assert.equal(second.code, 0, second.out);
 
@@ -5551,16 +5552,16 @@ const FIXTURES = [
     setTier(path.join(out, 'review.md'), 'alpha', 'redact');
     primeSemanticPass(root, out, saltDir, CORPUS_USER_ENV);
     const exported = runCli([
-      'export', '--root', root, '--out', out, '--salt-dir', saltDir,
+      'export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir,
       '--entities', path.join(root, 'ents.json'),
     ], CORPUS_USER_ENV);
     assert.equal(exported.code, 0, exported.out);
 
     // Everything is covered, so a bare re-run exports with no reading at all.
-    const quiet = runCli(['export', '--root', root, '--out', out, '--salt-dir', saltDir], CORPUS_USER_ENV);
+    const quiet = runCli(['export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir], CORPUS_USER_ENV);
     assert.equal(quiet.code, 0, quiet.out);
 
-    const full = runCli(['export', '--root', root, '--out', out, '--salt-dir', saltDir, '--full'], CORPUS_USER_ENV);
+    const full = runCli(['export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir, '--full'], CORPUS_USER_ENV);
     assert.equal(full.code, 1, `--full re-reads, so it refuses until the reader answers: ${full.out}`);
     const candidates = fs.readFileSync(path.join(out, 'deident-candidates.txt'), 'utf8');
     assert.ok(candidates.includes('PROSE-FROM-THE-SESSION-ALREADY-READ'), 'a covered session must be shown again');
@@ -5571,7 +5572,7 @@ const FIXTURES = [
     // "show me everything again" and --entities says "here is my answer", so
     // a run carrying both would read the answer and then refuse to use it.
     const both = runCli([
-      'export', '--root', root, '--out', out, '--salt-dir', saltDir, '--full',
+      'export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir, '--full',
       '--entities', path.join(root, 'ents.json'),
     ], CORPUS_USER_ENV);
     assert.equal(both.code, 2, `--full with --entities is a usage error: ${both.out}`);
@@ -5604,7 +5605,7 @@ const FIXTURES = [
     primeSemanticPass(root, out, saltDir, CORPUS_USER_ENV);
     assert.equal(
       runCli([
-        'export', '--root', root, '--out', out, '--salt-dir', saltDir,
+        'export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir,
         '--entities', path.join(root, 'ents.json'),
       ], CORPUS_USER_ENV).code,
       0,
@@ -5619,7 +5620,7 @@ const FIXTURES = [
     // "show whatever is uncovered" answer is available and wrong.
     appendTurn(root, second, corpus.cwd, 'PROSE-TYPED-AFTER-THE-LAST-READ');
 
-    const refused = runCli(['export', '--root', root, '--out', out, '--salt-dir', saltDir], CORPUS_USER_ENV);
+    const refused = runCli(['export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir], CORPUS_USER_ENV);
     assert.equal(refused.code, 1, refused.out);
     assert.match(refused.out, /semantic pass has not run/, `wrong refusal: ${refused.out}`);
 
@@ -5721,12 +5722,12 @@ const FIXTURES = [
     assert.equal(runCli(['scan', '--root', root, '--out', outDir, '--salt-dir', saltDir], CORPUS_USER_ENV).code, 0);
     setTier(path.join(outDir, 'review.md'), 'alpha', 'redact');
 
-    const refused = runCli(['export', '--root', root, '--out', outDir, '--salt-dir', saltDir, '--json'], CORPUS_USER_ENV);
+    const refused = runCli(['export', '--skip-secret-scan', '--root', root, '--out', outDir, '--salt-dir', saltDir, '--json'], CORPUS_USER_ENV);
     assert.equal(refused.code, 1, refused.out);
     const doc = JSON.parse(refused.out);
     assert.ok(doc.candidates.omittedChars > 0, `--json must carry the loss: ${JSON.stringify(doc.candidates)}`);
 
-    const spoken = runCli(['export', '--root', root, '--out', outDir, '--salt-dir', saltDir, '--full'], CORPUS_USER_ENV);
+    const spoken = runCli(['export', '--skip-secret-scan', '--root', root, '--out', outDir, '--salt-dir', saltDir, '--full'], CORPUS_USER_ENV);
     assert.match(spoken.out, /characters of prose were not shown/, `the terminal must say it too: ${spoken.out}`);
   }],
 
@@ -6161,7 +6162,7 @@ const FIXTURES = [
 
     // One session's prose is a little under 400 characters, so a 500-character
     // budget takes exactly one and defers the other two.
-    const args = ['export', '--root', root, '--out', out, '--salt-dir', saltDir, '--batch-chars', '500'];
+    const args = ['export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir, '--batch-chars', '500'];
     const first = runCli(args);
     assert.equal(first.code, 1, first.out);
     const dictFile = path.join(saltDir, DICTIONARY_FILENAME);
@@ -6190,7 +6191,7 @@ const FIXTURES = [
 
     // A budget below the size of any single session still offers one, or one
     // oversized session stalls the loop forever.
-    const tiny = runCli(['export', '--root', root, '--out', out, '--salt-dir', path.join(root, 'salt2'), '--batch-chars', '1']);
+    const tiny = runCli(['export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', path.join(root, 'salt2'), '--batch-chars', '1']);
     assert.equal(tiny.code, 1, tiny.out);
     assert.match(
       fs.readFileSync(path.join(out, 'deident-candidates.txt'), 'utf8'),
@@ -6402,7 +6403,7 @@ const FIXTURES = [
     primeSemanticPass(root, out, saltDir, CORPUS_USER_ENV);
     appendTurn(root, '11111111-1111-4111-8111-111111111111', corpus.cwd, 'one more turn, typed just now');
     const run = runCli(
-      ['export', '--root', root, '--out', out, '--salt-dir', saltDir, '--entities', path.join(root, 'ents.json')],
+      ['export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir, '--entities', path.join(root, 'ents.json')],
       CORPUS_USER_ENV,
     );
     assert.equal(run.code, 1, run.out);
@@ -6546,7 +6547,7 @@ const FIXTURES = [
 
     // The export refuses for want of an entity list, which is the path that
     // writes the candidates file. The document is still emitted on a refusal.
-    const refused = runCli(['export', '--root', root, '--out', out, '--salt-dir', saltDir, '--json'], CORPUS_USER_ENV);
+    const refused = runCli(['export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir, '--json'], CORPUS_USER_ENV);
     assert.notEqual(refused.code, 0);
     const doc = JSON.parse(refused.out);
     const est = doc.candidates.tokenEstimate;
@@ -6603,7 +6604,7 @@ const FIXTURES = [
     const ents = path.join(root, 'drill.json');
     fs.writeFileSync(ents, JSON.stringify({ entities: [{ kind: 'person', spellings: [NAME], confidence: 'high' }] }), 'utf8');
     const exp = runCli(
-      ['export', '--root', root, '--out', out, '--salt-dir', saltDir, '--entities', ents, '--json'],
+      ['export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir, '--entities', ents, '--json'],
       CORPUS_USER_ENV,
     );
     assert.equal(exp.code, 0, exp.out);
@@ -6654,7 +6655,7 @@ const FIXTURES = [
 
     // The export refuses for want of an entity list, which is the path that
     // writes the candidates file. The document is still emitted on a refusal.
-    const refused = runCli(['export', '--root', root, '--out', out, '--salt-dir', saltDir, '--json'], CORPUS_USER_ENV);
+    const refused = runCli(['export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir, '--json'], CORPUS_USER_ENV);
     assert.notEqual(refused.code, 0);
     const doc = JSON.parse(refused.out);
     const est = doc.candidates.tokenEstimate;
@@ -6805,7 +6806,7 @@ const FIXTURES = [
     primeSemanticPass(root, out, saltDir, CORPUS_USER_ENV);
     assert.equal(
       runCli(
-        ['export', '--root', root, '--out', out, '--salt-dir', saltDir, '--entities', path.join(root, 'ents.json')],
+        ['export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir, '--entities', path.join(root, 'ents.json')],
         CORPUS_USER_ENV,
       ).code,
       0,
@@ -6847,7 +6848,7 @@ const FIXTURES = [
     primeSemanticPass(root, out, saltDir, CORPUS_USER_ENV);
     assert.equal(
       runCli(
-        ['export', '--root', root, '--out', out, '--salt-dir', saltDir, '--entities', path.join(root, 'ents.json')],
+        ['export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir, '--entities', path.join(root, 'ents.json')],
         CORPUS_USER_ENV,
       ).code,
       0,
@@ -6893,7 +6894,7 @@ const FIXTURES = [
     const ents = path.join(root, 'drill.json');
     fs.writeFileSync(ents, JSON.stringify({ entities: [{ kind: 'person', spellings: [NAME], confidence: 'high' }] }), 'utf8');
     assert.equal(
-      runCli(['export', '--root', root, '--out', out, '--salt-dir', saltDir, '--entities', ents], CORPUS_USER_ENV).code,
+      runCli(['export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir, '--entities', ents], CORPUS_USER_ENV).code,
       0,
     );
 
@@ -7013,7 +7014,7 @@ const FIXTURES = [
     const ents = path.join(root, 'drill.json');
     fs.writeFileSync(ents, JSON.stringify({ entities: [{ kind: 'person', spellings: [NAME], confidence: 'high' }] }), 'utf8');
     const exp = runCli(
-      ['export', '--root', root, '--out', out, '--salt-dir', saltDir, '--entities', ents, '--json'],
+      ['export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir, '--entities', ents, '--json'],
       CORPUS_USER_ENV,
     );
     assert.equal(exp.code, 0, exp.out);
@@ -7115,7 +7116,7 @@ const FIXTURES = [
     setTier(path.join(out, 'review.md'), 'alpha', 'redact');
     primeSemanticPass(root, out, saltDir, CORPUS_USER_ENV);
     const exported = runCli([
-      'export', '--root', root, '--out', out, '--salt-dir', saltDir,
+      'export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir,
       '--entities', path.join(root, 'ents.json'),
     ], CORPUS_USER_ENV);
     assert.equal(exported.code, 0, exported.out);
@@ -7205,7 +7206,7 @@ const FIXTURES = [
     setTier(path.join(out, 'review.md'), 'alpha', 'redact');
     primeSemanticPass(root, out, saltDir, CORPUS_USER_ENV);
     const r = runCli([
-      'export', '--root', root, '--out', out, '--salt-dir', saltDir,
+      'export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir,
       '--entities', path.join(root, 'ents.json'),
     ], CORPUS_USER_ENV);
     assert.equal(r.code, 0, `a declared value must never refuse the export: ${r.out}`);
@@ -7603,7 +7604,7 @@ const FIXTURES = [
     setTier(path.join(out, 'review.md'), 'alpha', 'redact');
     primeSemanticPass(root, out, saltDir, CORPUS_USER_ENV);
     const r = runCli([
-      'export', '--root', root, '--out', out, '--salt-dir', saltDir, '--json',
+      'export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir, '--json',
       '--entities', path.join(root, 'ents.json'),
     ], CORPUS_USER_ENV);
     assert.equal(r.code, 0, r.out);
@@ -7627,7 +7628,7 @@ const FIXTURES = [
     // protected against" block for a run whose entity table had already fixed
     // it, because the fix landed in report.mjs alone.
     const preview = runCli([
-      'export', '--preview', '--root', root, '--out', out, '--salt-dir', saltDir,
+      'export', '--skip-secret-scan', '--preview', '--root', root, '--out', out, '--salt-dir', saltDir,
       '--entities', path.join(root, 'ents.json'),
     ], CORPUS_USER_ENV);
     assert.equal(preview.code, 0, preview.out);
@@ -7889,7 +7890,7 @@ const FIXTURES = [
     const saltDir = path.join(root, 'salt');
     const sid = '11111111-1111-4111-8111-111111111111';
     writeCorpus(root);
-    const args = ['export', '--root', root, '--out', out, '--salt-dir', saltDir, '--entities', path.join(root, 'ents.json')];
+    const args = ['export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir, '--entities', path.join(root, 'ents.json')];
 
     assert.equal(runCli(['scan', '--root', root, '--out', out, '--salt-dir', saltDir], CORPUS_USER_ENV).code, 0);
     setTier(path.join(out, 'review.md'), 'alpha', 'redact');
@@ -8904,7 +8905,7 @@ const FIXTURES = [
     assert.equal(runCli(['scan', '--root', root, '--out', out, '--salt-dir', saltDir]).code, 0);
     setTier(path.join(out, 'review.md'), 'queued', 'redact');
 
-    const first = runCli(['export', '--root', root, '--out', out, '--salt-dir', saltDir]);
+    const first = runCli(['export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir]);
     assert.equal(first.code, 1, `the first export refuses for want of an entity list: ${first.out}`);
     const candidates = fs.readFileSync(path.join(out, 'deident-candidates.txt'), 'utf8');
     assert.ok(
@@ -8920,7 +8921,7 @@ const FIXTURES = [
       'utf8',
     );
     const done = runCli([
-      'export', '--root', root, '--out', out, '--salt-dir', saltDir,
+      'export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir,
       '--entities', path.join(root, 'ents.json'),
     ]);
     assert.equal(done.code, 0, done.out);
@@ -9542,6 +9543,147 @@ const FIXTURES = [
       }, `${label} still refuses`);
       assert.ok(out === null || out.keep === false, `${label} was kept; every one of these is bookkeeping or an identifier`);
     }
+  }],
+
+  ['F219', 'the credential scan closes the gap the deny list admits, and never phones home', () => {
+    // docs/limits.md states the gap: "a credential with no listed vendor prefix
+    // and no label beside it is not detected", because the shipped patterns are
+    // hand-written and prefix-anchored. This wires in a scanner that maintains
+    // hundreds of detectors.
+    //
+    // The scanner is stubbed here. What is asserted is the CONTRACT deident
+    // holds it to, which is the part deident owns: the flags it is invoked
+    // with, what a finding does, and what happens when it is absent.
+    let sawArgs = null;
+    const stub = (bin, dir) => {
+      sawArgs = { bin, dir };
+      return [
+        JSON.stringify({
+          DetectorName: 'Mailgun',
+          // Assembled rather than written. The value is fabricated, but GitHub's
+          // push protection matches the SHAPE and blocked the whole push over
+          // it, which is a fixture that cannot be committed. Provenance is not
+          // something a scanner can see, and that cuts both ways: it is the
+          // same property that makes this scan worth running.
+          Raw: ['key', '3f8a2b1c', '9d0e4f5a', '6b7c8d9e', '0f1a2b3c'].join('-'),
+          SourceMetadata: { Data: { Filesystem: { file: '/tmp/x/sessions_WS_1.jsonl' } } },
+        }),
+        'not json at all',
+        JSON.stringify({ level: 'info-0', msg: 'finished scanning' }),
+      ].join(String.fromCharCode(10));
+    };
+    const entries = [{ name: 'sessions/WS/1.jsonl', data: 'nothing interesting' }];
+    const found = scanForSecrets(entries, { run: stub });
+
+    assert.equal(found.ran, true, 'a scanner that answered was reported as not run');
+    assert.equal(found.findings.length, 1, 'the log lines were counted as findings, or the finding was lost');
+    assert.equal(found.findings[0].detector, 'Mailgun');
+    assert.equal(found.findings[0].entry, 'sessions_WS_1.jsonl', 'the finding does not say which entry it was in');
+
+    // BRIEF 4.7. A refusal that prints the raw string leaks the thing it guards.
+    assert.ok(
+      !found.findings[0].excerpt.includes('9d0e4f5a'),
+      'the finding carries enough of the credential to use it',
+    );
+
+    // An absent scanner is NOT a clean scan. It is reported as not having run,
+    // with the reason, because "0 secrets" would otherwise read as "scanned and
+    // clean" to the person deciding whether to send the file.
+    const missing = scanForSecrets(entries, { run: () => null, bin: 'nope' });
+    assert.equal(missing.ran, false);
+    assert.equal(missing.findings.length, 0);
+    assert.match(secretScanLine(missing), /did NOT run/, 'the absence of the scan is not stated');
+    assert.match(secretScanLine(missing), /nothing more/, 'the absent scan does not say what it costs');
+
+    // A scanner that fell over is also not a clean scan.
+    const broke = scanForSecrets(entries, {
+      run: () => {
+        throw new Error('exit status 2');
+      },
+    });
+    assert.equal(broke.ran, false, 'a crashed scanner was reported as a clean scan');
+  }],
+
+  ['F220', 'the credential scan is invoked with verification off, or it is a network call', () => {
+    // BRIEF 2: no network calls, ever. That property is the product. Verification
+    // is the entire reason this scanner would otherwise reach the internet: it
+    // takes each candidate secret and asks the vendor whether it is live, which
+    // means sending the credential to a third party from inside the tool whose
+    // job is that nothing leaves the machine.
+    //
+    // So the flag is asserted, not trusted, and it is asserted here rather than
+    // read in review, because it is one word away from being wrong.
+    let sawArgv = null;
+    const stub = (bin, dir) => {
+      sawArgv = { bin, dir };
+      return '';
+    };
+    scanForSecrets([{ name: 'a', data: 'b' }], { run: stub });
+    assert.ok(sawArgv, 'the scanner was never invoked');
+
+    // The default runner is what actually builds the argv, so read it.
+    const source = fs.readFileSync(
+      path.join(fileURLToPath(new URL('..', import.meta.url)), 'src', 'verify', 'secretscan.mjs'),
+      'utf8',
+    );
+    assert.match(source, /'--no-verification'/, 'verification is not disabled: candidate secrets would be sent to vendors');
+    assert.match(source, /'--no-update'/, 'the scanner would check for a release, which is also a network call');
+    assert.ok(
+      !/--verif(y|ication)['"\s]*[,)]/.test(source.replace(/--no-verification/g, '')),
+      'something re-enables verification',
+    );
+    assert.equal(SCANNER, 'trufflehog');
+  }],
+
+  ['F221', 'turning the credential scan off says so, in the output and in the document', () => {
+    // The flag exists because the scanner costs about 5 seconds per export and
+    // the fixture archives, built from synthetic corpora, hold no credential by
+    // construction: with it on everywhere the suite went from 41s to 123s, and
+    // a suite that slow is one people stop running, which is F7's failure mode
+    // arriving as latency.
+    //
+    // The danger it introduces is the obvious one. A flag that quietly disables
+    // a gate turns "0 secrets" into a sentence the operator reads as "scanned
+    // and clean". So the only property that matters is that using it is LOUD,
+    // and that is what this pins.
+    const root = tmpdir();
+    const out = path.join(root, 'out');
+    const saltDir = path.join(root, 'salt');
+    writeCorpus(root);
+    assert.equal(runCli(['scan', '--root', root, '--out', out, '--salt-dir', saltDir], CORPUS_USER_ENV).code, 0);
+    setTier(path.join(out, 'review.md'), 'alpha', 'redact');
+    primeSemanticPass(root, out, saltDir, CORPUS_USER_ENV);
+
+    const r = runCli([
+      'export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir,
+      '--entities', path.join(root, 'ents.json'),
+    ], CORPUS_USER_ENV);
+    assert.equal(r.code, 0, r.out);
+    assert.match(
+      r.out,
+      /secret scan did not run/,
+      'the export was run with the credential scan off and never said so',
+    );
+    assert.match(r.out, /--skip-secret-scan/, 'the output does not say WHY the scan did not run');
+
+    // And in the machine document, since an agent reads that and not the prose.
+    const j = runCli([
+      'export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir,
+      '--entities', path.join(root, 'ents.json'), '--json',
+    ], CORPUS_USER_ENV);
+    assert.equal(j.code, 0, j.out);
+    const doc = JSON.parse(j.out);
+    assert.equal(doc.secretScan?.ran, false, 'the document does not record that the scan was skipped');
+    assert.ok(
+      (doc.warnings ?? []).some((w) => /secret scan did not run/.test(w)),
+      'the skipped scan is not in the warnings an agent reads',
+    );
+    // Not a passing check row either. It did not look, so it neither passed nor
+    // failed, and claiming a pass is the thing this whole gate exists against.
+    assert.ok(
+      !(doc.checks ?? []).some((c) => c.label === 'secret scan'),
+      'a scan that never ran was recorded as a check',
+    );
   }],
 
 ];
