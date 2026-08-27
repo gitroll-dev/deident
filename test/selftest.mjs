@@ -104,9 +104,6 @@ import { parseCliArgs } from '../src/cli/args.mjs';
 import { checkRuntime, REQUIRED_NODE } from '../src/cli/runtime.mjs';
 import { serializeSessions, resolveOutDir, sanitizeEntryName, stripMintedSpellings, extractProseBySession, stripStructuralSpellings, ENTRY_ROOT } from '../src/pipeline.mjs';
 import { RefusalError, ReadError, UsageError } from '../src/cli/errors.mjs';
-import { buildTable, substituteString, reverseString, allOccurrences, leftIsWordChar, startsOnEscapeBody } from '../src/substitute/engine.mjs';
-import { checkSubstitution, checkSemanticPass, semanticRefusal, coverageRefusal, unverifiedRemainder } from '../src/verify/checks.mjs';
-import { serializeSessions, resolveOutDir, sanitizeEntryName, stripMintedSpellings, extractProseBySession } from '../src/pipeline.mjs';
 
 // Both sides of every fold pair must be Han and nothing else. A pair that
 // slipped in a lookalike from another block would fold text nobody asked about.
@@ -8754,6 +8751,9 @@ const FIXTURES = [
       { type: 'redacted_thinking', data: 'PROSE-REDACTED-THINKING' },
       { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'PROSE-IMAGE-BODY' } },
       { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: 'PROSE-DOCUMENT-BODY' } },
+      // A model-fallback marker. It carries no text of its own, so the sentinel
+      // sits where one would go if the shape ever gained a field.
+      { type: 'fallback', from: { model: 'PROSE-FALLBACK-FROM' }, to: { model: 'PROSE-FALLBACK-TO' } },
     ];
     const stamp = { sessionId: sid, timestamp: '2026-08-20T10:11:12.345Z', cwd };
     const samples = [
@@ -9494,7 +9494,7 @@ const FIXTURES = [
     try {
       retainRecord(
         {
-          type: 'plan_mode_exit',
+          type: 'a-type-no-harness-has-shipped',
           sessionId: 's1',
           uuid: 'u1',
           planText: 'Nora Lund agreed the migration plan',
