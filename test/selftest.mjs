@@ -9524,26 +9524,6 @@ const FIXTURES = [
     );
   }],
 
-  ['F218', 'the three types decided from real records no longer refuse', () => {
-    // cost-state and history-suppression are top-level; bridge_status is a
-    // system subtype. Each was decided by reading a record on this machine, not
-    // from its name: history-suppression carries `vetoedAgainstAccountUuid`,
-    // which is the identifier F5 names as the one no detector matches.
-    const ctx = newRetentionContext((u) => u);
-    const cases = [
-      { type: 'cost-state', sessionId: 's1', totalCostUSD: 1.99, modelUsage: {} },
-      { type: 'history-suppression', sessionId: 's1', cause: 'chokepoint_veto', vetoedAgainstAccountUuid: '298c7b05' },
-      { type: 'system', subtype: 'bridge_status', uuid: 'u1', sessionId: 's1', content: 'https://claude.ai/code/session_01YZ' },
-    ];
-    for (const rec of cases) {
-      const label = rec.subtype ?? rec.type;
-      let out = null;
-      assert.doesNotThrow(() => {
-        out = retainRecord(rec, ctx, { file: 'w.jsonl', line: 1 });
-      }, `${label} still refuses`);
-      assert.ok(out === null || out.keep === false, `${label} was kept; every one of these is bookkeeping or an identifier`);
-    }
-  }],
 
   ['F219', 'the credential scan closes the gap the deny list admits, and never phones home', () => {
     // docs/limits.md states the gap: "a credential with no listed vendor prefix

@@ -64,22 +64,6 @@ const TOP_LEVEL = Object.freeze({
   'artifact-comment-monitor': 'drop',
   'artifact-autoreact-ledger': 'drop',
 
-  // Two more, decided from records on this machine rather than from their
-  // names. A colleague's export refused on twelve types at once; these are the
-  // ones the development corpus also carries, so they could be looked at.
-  //
-  // `cost-state` is per-session telemetry: cost in USD, API and tool durations,
-  // lines added and removed, and a `modelUsage` map. No user text, and the
-  // model mix it carries is already a named limit rather than something to
-  // start shipping deliberately.
-  //
-  // `history-suppression` is the reason this list is not a formality. It holds
-  // `cause`, a timestamp, and `vetoedAgainstAccountUuid`: an ACCOUNT uuid, the
-  // identifier §F5 names as the one no detector matches, on a record type the
-  // brief never saw. The same shape as `artifact-autoreact-ledger` above, found
-  // the same way.
-  'cost-state': 'drop',
-  'history-suppression': 'drop',
 });
 
 // PLAN §3.2. Only three of the 26 carry user text.
@@ -123,10 +107,6 @@ const SYSTEM_DROP = Object.freeze([
   'scheduled_task_fire',
   'model_consent_fallback',
   'model_refusal_fallback',
-  // Decided from a record on this machine: `content` is the remote-control
-  // notice and it carries `https://claude.ai/code/session_01YZ…`, an
-  // account-scoped session URL. Not a user turn, and an identifier.
-  'bridge_status',
 ]);
 
 // `shape-only` is a third decision beside keep and drop, and it exists for one
