@@ -9474,6 +9474,76 @@ const FIXTURES = [
     assert.ok(text.includes('file an issue against deident'), 'the bug-report remedy was removed entirely');
   }],
 
+  ['F217', 'a refusal on an unknown type names its fields, so nobody has to send a log to get it decided', () => {
+    // Twelve types refused at once in a colleague's corpus. Three of them
+    // existed on this machine, so three could be decided from real records and
+    // nine could not, and deciding the nine would have meant either guessing
+    // from their names, which BRIEF 4.4 forbids, or asking him to send session
+    // logs to whoever maintains the tool, which is the one thing this tool
+    // exists to avoid.
+    //
+    // The field names settle it without either. `planText` says it carries user
+    // text; `accountUuid` says it carries an identifier. Names only: a field
+    // name is structure, a value is the content the refusal is protecting.
+    const ctx = newRetentionContext((u) => u);
+    let err = null;
+    try {
+      retainRecord(
+        {
+          type: 'plan_mode_exit',
+          sessionId: 's1',
+          uuid: 'u1',
+          planText: 'Nora Lund agreed the migration plan',
+          accountUuid: '298c7b05-7abf-4557-81e9-2a74eb09d2a8',
+        },
+        ctx,
+        { file: 'w.jsonl', line: 42 },
+      );
+    } catch (e) {
+      err = e;
+    }
+    assert.ok(err instanceof RefusalError, 'an unknown top-level type did not refuse');
+    const text = [err.reason ?? '', ...(err.why ?? [])].join(String.fromCharCode(10));
+
+    for (const field of ['planText', 'accountUuid', 'sessionId']) {
+      assert.ok(text.includes(field), `the refusal does not name the field ${field}`);
+    }
+    // Names only. The value is what the refusal is guarding, so printing it
+    // would leak exactly what stopping was for.
+    assert.ok(!text.includes('Nora Lund'), 'the refusal printed a VALUE, not just a field name');
+    assert.ok(!text.includes('298c7b05'), 'the refusal printed an account uuid');
+
+    // The remedy the operator can apply comes first. It used to come second,
+    // under "file an issue against deident", and a colleague re-ran an export
+    // in a shell loop rather than seeing it.
+    assert.match(
+      err.remedies[0].command,
+      /--skip-unknown-types/,
+      'the first remedy is not the one that unblocks the export',
+    );
+  }],
+
+  ['F218', 'the three types decided from real records no longer refuse', () => {
+    // cost-state and history-suppression are top-level; bridge_status is a
+    // system subtype. Each was decided by reading a record on this machine, not
+    // from its name: history-suppression carries `vetoedAgainstAccountUuid`,
+    // which is the identifier F5 names as the one no detector matches.
+    const ctx = newRetentionContext((u) => u);
+    const cases = [
+      { type: 'cost-state', sessionId: 's1', totalCostUSD: 1.99, modelUsage: {} },
+      { type: 'history-suppression', sessionId: 's1', cause: 'chokepoint_veto', vetoedAgainstAccountUuid: '298c7b05' },
+      { type: 'system', subtype: 'bridge_status', uuid: 'u1', sessionId: 's1', content: 'https://claude.ai/code/session_01YZ' },
+    ];
+    for (const rec of cases) {
+      const label = rec.subtype ?? rec.type;
+      let out = null;
+      assert.doesNotThrow(() => {
+        out = retainRecord(rec, ctx, { file: 'w.jsonl', line: 1 });
+      }, `${label} still refuses`);
+      assert.ok(out === null || out.keep === false, `${label} was kept; every one of these is bookkeeping or an identifier`);
+    }
+  }],
+
 ];
 
 export function selftest() {

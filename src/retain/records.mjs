@@ -63,6 +63,23 @@ const TOP_LEVEL = Object.freeze({
   // have been enough.
   'artifact-comment-monitor': 'drop',
   'artifact-autoreact-ledger': 'drop',
+
+  // Two more, decided from records on this machine rather than from their
+  // names. A colleague's export refused on twelve types at once; these are the
+  // ones the development corpus also carries, so they could be looked at.
+  //
+  // `cost-state` is per-session telemetry: cost in USD, API and tool durations,
+  // lines added and removed, and a `modelUsage` map. No user text, and the
+  // model mix it carries is already a named limit rather than something to
+  // start shipping deliberately.
+  //
+  // `history-suppression` is the reason this list is not a formality. It holds
+  // `cause`, a timestamp, and `vetoedAgainstAccountUuid`: an ACCOUNT uuid, the
+  // identifier §F5 names as the one no detector matches, on a record type the
+  // brief never saw. The same shape as `artifact-autoreact-ledger` above, found
+  // the same way.
+  'cost-state': 'drop',
+  'history-suppression': 'drop',
 });
 
 // PLAN §3.2. Only three of the 26 carry user text.
@@ -106,6 +123,10 @@ const SYSTEM_DROP = Object.freeze([
   'scheduled_task_fire',
   'model_consent_fallback',
   'model_refusal_fallback',
+  // Decided from a record on this machine: `content` is the remote-control
+  // notice and it carries `https://claude.ai/code/session_01YZ…`, an
+  // account-scoped session URL. Not a user turn, and an identifier.
+  'bridge_status',
 ]);
 
 // `shape-only` is a third decision beside keep and drop, and it exists for one
@@ -226,7 +247,7 @@ export function retainRecord(rec, ctx, where) {
   }
 
   const decision = TOP_LEVEL[rec.type];
-  if (decision === undefined) throw unknown(`top-level record type "${rec.type}"`, where, `type ${rec.type}`);
+  if (decision === undefined) throw unknown(`top-level record type "${rec.type}"`, where, `type ${rec.type}`, rec);
   if (decision !== 'keep') {
     ctx.stats.dropped += 1;
     return DROPPED;
@@ -259,7 +280,7 @@ function retainByType(rec, ctx, where) {
     case 'system':
       return retainSystem(rec, ctx, where);
     default:
-      throw unknown(`top-level record type "${rec.type}"`, where);
+      throw unknown(`top-level record type "${rec.type}"`, where, null, rec);
   }
 }
 
@@ -347,7 +368,7 @@ function retainBlocks(blocks, ctx, where) {
   for (const block of blocks) {
     if (block === null || typeof block !== 'object') continue;
     const decision = BLOCK_DECISIONS[block.type];
-    if (decision === undefined) throw unknown(`content block type "${block.type}"`, where, `block ${block.type}`);
+    if (decision === undefined) throw unknown(`content block type "${block.type}"`, where, `block ${block.type}`, block);
     if (decision === 'drop') continue;
     if (decision === 'drop-counted') {
       if (block.type === 'image') ctx.stats.images += 1;
@@ -684,7 +705,7 @@ function retainAttachment(rec, ctx, where) {
   if (subtype === undefined) throw unknown('an attachment with no sub-type', where);
   if (ATTACHMENT_DROP.includes(subtype)) return null;
   if (!ATTACHMENT_KEEP.includes(subtype)) {
-    throw unknown(`attachment sub-type "${subtype}"`, where, `attachment ${subtype}`);
+    throw unknown(`attachment sub-type "${subtype}"`, where, `attachment ${subtype}`, att);
   }
 
   // An attachment names the file it came from, so the denial is exact here.
@@ -890,7 +911,7 @@ function retainSystem(rec, ctx, where) {
   const subtype = rec.subtype ?? null;
   if (subtype === null) throw unknown('a system record with no subtype', where);
   if (SYSTEM_DROP.includes(subtype)) return null;
-  if (!SYSTEM_KEEP.includes(subtype)) throw unknown(`system subtype "${subtype}"`, where, `system ${subtype}`);
+  if (!SYSTEM_KEEP.includes(subtype)) throw unknown(`system subtype "${subtype}"`, where, `system ${subtype}`, rec);
   return prune({
     type: 'system',
     subtype,
@@ -956,19 +977,43 @@ function prune(obj) {
   return out;
 }
 
-function unknown(what, where, kind = null) {
+/**
+ * The FIELD NAMES of the record that could not be decided, and nothing else.
+ *
+ * Deciding a new type means knowing whether it carries user text, and the
+ * names of its fields answer that: `content` and `text` mean it might,
+ * `totalCostUSD` and `accountUuid` mean it does not. Without them the person
+ * hitting this refusal has to send their session log to whoever maintains the
+ * tool, which is the one thing this tool exists to avoid.
+ *
+ * Twelve types refused in one colleague's corpus and three of them existed
+ * here, so three could be decided from real records and nine could not. That
+ * asymmetry is what this prints its way out of.
+ *
+ * Names only, never values. A field name is structure; a value is the content
+ * the refusal is protecting. The list is what goes in an issue.
+ */
+function fieldNames(shape) {
+  if (shape === null || typeof shape !== 'object') return [];
+  const keys = Object.keys(shape);
+  if (keys.length === 0) return [];
+  return [`  its fields, names only: ${keys.join(', ')}`, ''];
+}
+
+function unknown(what, where, kind = null, shape = null) {
   return new RefusalError(`deident has never seen ${what}`, {
     why: [
       where ? `  ${where.file}  line ${where.line}` : '',
       '',
+      ...fieldNames(shape),
       'deident refuses to guess whether a record it has never seen carries user',
       'text. Every type in the export has an explicit, reviewed decision, and a',
       'silent drop is how the highest-value user turns get lost (BRIEF §4.4).',
     ].filter((l) => l !== ''),
     remedies: [
-      { label: 'Report the type above', command: 'file an issue against deident' },
-      { label: 'Or drop just these records', command: 'deident export --skip-unknown-types' },
-      { label: 'Meanwhile, export older logs', command: 'deident export --root <older copy>' },
+      { label: 'Unblock this export now', command: 'deident export --skip-unknown-types' },
+      { label: 'Then report the type and its fields', command: 'file an issue against deident' },
+      { label: 'Or export an older copy of the logs', command: 'deident export --root <older copy>' },
     ],
     // `unknown` names the class the escape hatch counts. Claude Code ships a
     // new record type every few weeks (§F4 records 2.1.215 -> 2.1.238 inside
