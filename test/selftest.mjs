@@ -31,7 +31,7 @@ import {
   basenameOf,
   buildEntities,
 } from '../src/entities/seed.mjs';
-import { buildTable, substituteString, reverseString, allOccurrences, leftIsWordChar, startsOnEscapeBody } from '../src/substitute/engine.mjs';
+import { buildTable, substituteString, reverseString, allOccurrences, leftIsWordChar, startsOnEscapeBody, bucketAt, longestMatchAt, sourceCharsMatching, foldLower } from '../src/substitute/engine.mjs';
 import { probeCounts, probeOutliers } from '../src/entities/probe.mjs';
 import { substituteRecord } from '../src/substitute/walker.mjs';
 import { checkSubstitution, checkSemanticPass, semanticRefusal, coverageRefusal, unverifiedRemainder } from '../src/verify/checks.mjs';
@@ -9304,6 +9304,96 @@ const FIXTURES = [
     assert.equal(ctx.stats.deniedPaths, 1, 'the withheld path was not counted');
     assert.ok(ctx.stats.injectedBytesDropped > 0, 'the injected bytes were not counted');
   }],
+
+  ['F213', 'the two-character index finds exactly what scanning every entry finds', () => {
+    // A speed change to the matcher is the most dangerous edit in this file:
+    // an entity that silently stops matching leaves every gate green, the
+    // manifest saying "0 occurrences of N spellings", and the name in the zip.
+    // The suite cannot catch that by example, because the example that breaks
+    // is the one nobody thought of.
+    //
+    // So this asserts the invariant instead: at EVERY offset of a corpus, the
+    // narrowed bucket must yield the same entry as the full first-character
+    // bucket, which is the code path that shipped before the index existed.
+    // The old path is the oracle; the fixture fails the moment they disagree.
+    const spellings = [
+      'Ada Wren', 'Ada', 'Adam', 'ADA', 'aDa',              // shared prefixes, case
+      'Σοφία', 'σοφία', 'ΟΔΟΣ', 'οδός',                     // final vs medial sigma
+      '小明', '小明天', '林', '林小明',                        // CJK, one of them a single char
+      'X', 'Xu', 'Xylo',                                     // a length-1 spelling beside longer ones
+      'kestrel-labs/harbour-api', 'harbour-api',
+      'a', 'ab', 'abc',                                      // length-1 at the head of a chain
+    ];
+    const entities = spellings.map((sp, i) => ({
+      kind: 'person',
+      canonical: sp,
+      spellings: [sp],
+      pseudonym: 'PERSON_' + i,
+      confidence: 'high',
+    }));
+    const table = buildTable(entities);
+
+    // Prose that puts every spelling next to the things that break matchers:
+    // end of string, a neighbouring word character, the other case, and the
+    // fold pair. The tail is deliberately a bare spelling with nothing after
+    // it, because end-of-string is where a second-character index has no
+    // second character to look at.
+    const corpus = [
+      'Ada Wren met Adam and ADA and aDa near kestrel-labs/harbour-api.',
+      'Σοφία wrote οδός and ΟΔΟΣ; σοφία replied.',
+      '小明天不是小明，林小明也不是林。',
+      'X marks Xu and Xylo. a ab abc abcd Xylophone',
+      'harbour-api',
+    ].join(String.fromCharCode(10));
+
+    let compared = 0;
+    for (let i = 0; i < corpus.length; i += 1) {
+      const full = table.byFirstChar.get(corpus[i]);
+      const narrow = bucketAt(table, corpus, i);
+      const a = full === undefined ? null : longestMatchAt(corpus, i, full);
+      const b = narrow === undefined ? null : longestMatchAt(corpus, i, narrow);
+      assert.equal(
+        b === null ? null : b.spelling,
+        a === null ? null : a.spelling,
+        `offset ${i} (${JSON.stringify(corpus.slice(i, i + 12))}): the narrowed bucket and the full bucket disagree`,
+      );
+      compared += 1;
+    }
+    assert.ok(compared > 150, 'the corpus got shorter than the invariant needs');
+
+    // The whole-string result must be identical too, not only the per-offset
+    // decision, since substituteString also absorbs entities starting inside a
+    // claimed span and that path uses the same index.
+    const out = substituteString(corpus, table).out;
+    assert.ok(!out.includes('Ada Wren'), 'a declared spelling survived');
+    assert.ok(!out.includes('σοφία') && !out.includes('Σοφία'), 'the sigma pair survived');
+    assert.ok(!out.includes('小明'), 'the CJK spelling survived');
+    // End of string is where a second-character index has no second character
+    // to narrow on, so the fallback list is the only thing that can match there.
+    assert.ok(/PERSON_\d+$/.test(out), 'a spelling at end of string was not matched');
+    assert.ok(!out.endsWith('harbour-api'), 'the trailing spelling shipped verbatim');
+  }],
+
+  ['F214', 'the index knows every source character that folds onto a needle', () => {
+    // sourceCharsMatching is the inverse of foldLower, and it is written out by
+    // hand. A character missing from it is an entity that stops matching in one
+    // case only, which no example-based fixture would notice.
+    assert.deepEqual(sourceCharsMatching('a', false), ['a'], 'a case-sensitive needle takes one key');
+    assert.deepEqual([...sourceCharsMatching('a', true)].sort(), ['A', 'a']);
+    // foldLower('ς') is 'σ', so a needle 'σ' has to be reachable from 'ς'.
+    assert.equal(foldLower('ς'), 'σ', 'the premise of the sigma case changed');
+    assert.deepEqual([...sourceCharsMatching('σ', true)].sort(), ['Σ', 'ς', 'σ'].sort());
+    // Every character this fixture can reach must round-trip: if foldLower(c)
+    // is the needle, c must be one of the keys.
+    for (const c of 'AaBbZzΣσςÉé0189-_/.') {
+      const needle = foldLower(c);
+      assert.ok(
+        sourceCharsMatching(needle, true).includes(c),
+        `source character ${JSON.stringify(c)} folds to ${JSON.stringify(needle)} but is not a key for it`,
+      );
+    }
+  }],
+
 
 ];
 
