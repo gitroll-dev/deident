@@ -15,9 +15,21 @@
 // verbatim, which is the half of that hedge that was load-bearing.
 
 /**
- * BRIEF §6 posture again: thinking blocks are agent reasoning and are the
- * single largest byte lever. They are kept, and this is the knob to turn if
- * export size ever actually bites.
+ * BRIEF §6 posture again: thinking blocks are agent reasoning, so they are
+ * kept, and this is the knob to turn if a corpus ever makes them expensive.
+ *
+ * This comment used to call them "the single largest byte lever", which is
+ * false on the corpus in front of it and was never measured. Claude Code
+ * writes the block with `thinking: ""` and keeps only the encrypted
+ * `signature`, so the reasoning text is not in the log at all. Counted over
+ * the 30 largest sessions on this machine: 7,771 thinking blocks, every one
+ * of them empty, 0 bytes. `retainBlock` drops them on the empty-string guard
+ * and this constant never decides anything here.
+ *
+ * It stays true, and the case stays, because a harness that DOES persist the
+ * text is exactly what BRIEF §4.4 says not to guess about. Turning the knob
+ * on the strength of one client's behaviour would discard reasoning prose for
+ * every other one.
  */
 export const KEEP_THINKING_BLOCKS = true;
 

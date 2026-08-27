@@ -31,10 +31,10 @@ import {
   basenameOf,
   buildEntities,
 } from '../src/entities/seed.mjs';
-import { buildTable, substituteString, reverseString, allOccurrences, leftIsWordChar, startsOnEscapeBody } from '../src/substitute/engine.mjs';
+import { buildTable, substituteString, reverseString, allOccurrences, leftIsWordChar, startsOnEscapeBody, bucketAt, longestMatchAt, sourceCharsMatching, foldLower } from '../src/substitute/engine.mjs';
 import { probeCounts, probeOutliers } from '../src/entities/probe.mjs';
 import { substituteRecord } from '../src/substitute/walker.mjs';
-import { checkSubstitution, checkSemanticPass, semanticRefusal, coverageRefusal, unverifiedRemainder } from '../src/verify/checks.mjs';
+import { checkSubstitution, checkSemanticPass, semanticRefusal, coverageRefusal, unverifiedRemainder, residueRefusal } from '../src/verify/checks.mjs';
 import { checkDeclaredValues } from '../src/verify/declared.mjs';
 import { residualScan, startsInsideEscape, jsonEscaped } from '../src/verify/residual.mjs';
 import { distillToolResult, retainToolUseResult } from '../src/retain/toolresult.mjs';
@@ -101,7 +101,7 @@ import { CANDIDATE_CHUNK_CHARS, DENIED_CONTENT, DENIED_TEXT } from '../src/retai
 import { DICTIONARY_FILENAME, mergeEntities } from '../src/policy/dictionary.mjs';
 import { parseCliArgs } from '../src/cli/args.mjs';
 import { checkRuntime, REQUIRED_NODE } from '../src/cli/runtime.mjs';
-import { serializeSessions, resolveOutDir, sanitizeEntryName, stripMintedSpellings, extractProseBySession } from '../src/pipeline.mjs';
+import { serializeSessions, resolveOutDir, sanitizeEntryName, stripMintedSpellings, extractProseBySession, stripStructuralSpellings, ENTRY_ROOT } from '../src/pipeline.mjs';
 import { RefusalError, ReadError, UsageError } from '../src/cli/errors.mjs';
 
 // Both sides of every fold pair must be Han and nothing else. A pair that
@@ -9303,6 +9303,175 @@ const FIXTURES = [
     );
     assert.equal(ctx.stats.deniedPaths, 1, 'the withheld path was not counted');
     assert.ok(ctx.stats.injectedBytesDropped > 0, 'the injected bytes were not counted');
+  }],
+
+  ['F213', 'the two-character index finds exactly what scanning every entry finds', () => {
+    // A speed change to the matcher is the most dangerous edit in this file:
+    // an entity that silently stops matching leaves every gate green, the
+    // manifest saying "0 occurrences of N spellings", and the name in the zip.
+    // The suite cannot catch that by example, because the example that breaks
+    // is the one nobody thought of.
+    //
+    // So this asserts the invariant instead: at EVERY offset of a corpus, the
+    // narrowed bucket must yield the same entry as the full first-character
+    // bucket, which is the code path that shipped before the index existed.
+    // The old path is the oracle; the fixture fails the moment they disagree.
+    const spellings = [
+      'Ada Wren', 'Ada', 'Adam', 'ADA', 'aDa',              // shared prefixes, case
+      'Σοφία', 'σοφία', 'ΟΔΟΣ', 'οδός',                     // final vs medial sigma
+      '小明', '小明天', '林', '林小明',                        // CJK, one of them a single char
+      'X', 'Xu', 'Xylo',                                     // a length-1 spelling beside longer ones
+      'kestrel-labs/harbour-api', 'harbour-api',
+      'a', 'ab', 'abc',                                      // length-1 at the head of a chain
+    ];
+    const entities = spellings.map((sp, i) => ({
+      kind: 'person',
+      canonical: sp,
+      spellings: [sp],
+      pseudonym: 'PERSON_' + i,
+      confidence: 'high',
+    }));
+    const table = buildTable(entities);
+
+    // Prose that puts every spelling next to the things that break matchers:
+    // end of string, a neighbouring word character, the other case, and the
+    // fold pair. The tail is deliberately a bare spelling with nothing after
+    // it, because end-of-string is where a second-character index has no
+    // second character to look at.
+    const corpus = [
+      'Ada Wren met Adam and ADA and aDa near kestrel-labs/harbour-api.',
+      'Σοφία wrote οδός and ΟΔΟΣ; σοφία replied.',
+      '小明天不是小明，林小明也不是林。',
+      'X marks Xu and Xylo. a ab abc abcd Xylophone',
+      'harbour-api',
+    ].join(String.fromCharCode(10));
+
+    let compared = 0;
+    for (let i = 0; i < corpus.length; i += 1) {
+      const full = table.byFirstChar.get(corpus[i]);
+      const narrow = bucketAt(table, corpus, i);
+      const a = full === undefined ? null : longestMatchAt(corpus, i, full);
+      const b = narrow === undefined ? null : longestMatchAt(corpus, i, narrow);
+      assert.equal(
+        b === null ? null : b.spelling,
+        a === null ? null : a.spelling,
+        `offset ${i} (${JSON.stringify(corpus.slice(i, i + 12))}): the narrowed bucket and the full bucket disagree`,
+      );
+      compared += 1;
+    }
+    assert.ok(compared > 150, 'the corpus got shorter than the invariant needs');
+
+    // The whole-string result must be identical too, not only the per-offset
+    // decision, since substituteString also absorbs entities starting inside a
+    // claimed span and that path uses the same index.
+    const out = substituteString(corpus, table).out;
+    assert.ok(!out.includes('Ada Wren'), 'a declared spelling survived');
+    assert.ok(!out.includes('σοφία') && !out.includes('Σοφία'), 'the sigma pair survived');
+    assert.ok(!out.includes('小明'), 'the CJK spelling survived');
+    // End of string is where a second-character index has no second character
+    // to narrow on, so the fallback list is the only thing that can match there.
+    assert.ok(/PERSON_\d+$/.test(out), 'a spelling at end of string was not matched');
+    assert.ok(!out.endsWith('harbour-api'), 'the trailing spelling shipped verbatim');
+  }],
+
+  ['F214', 'the index knows every source character that folds onto a needle', () => {
+    // sourceCharsMatching is the inverse of foldLower, and it is written out by
+    // hand. A character missing from it is an entity that stops matching in one
+    // case only, which no example-based fixture would notice.
+    assert.deepEqual(sourceCharsMatching('a', false), ['a'], 'a case-sensitive needle takes one key');
+    assert.deepEqual([...sourceCharsMatching('a', true)].sort(), ['A', 'a']);
+    // foldLower('ς') is 'σ', so a needle 'σ' has to be reachable from 'ς'.
+    assert.equal(foldLower('ς'), 'σ', 'the premise of the sigma case changed');
+    assert.deepEqual([...sourceCharsMatching('σ', true)].sort(), ['Σ', 'ς', 'σ'].sort());
+    // Every character this fixture can reach must round-trip: if foldLower(c)
+    // is the needle, c must be one of the keys.
+    for (const c of 'AaBbZzΣσςÉé0189-_/.') {
+      const needle = foldLower(c);
+      assert.ok(
+        sourceCharsMatching(needle, true).includes(c),
+        `source character ${JSON.stringify(c)} folds to ${JSON.stringify(needle)} but is not a key for it`,
+      );
+    }
+  }],
+
+
+  ['F215', 'a declared spelling that is a field name in the archive is dropped, not substituted', () => {
+    // Entity matching is case-insensitive and substitution runs over the
+    // serialized JSON, so a declared `Model` replaces the key `"model"` in
+    // every record. The structure is destroyed, the residue gate then finds
+    // thousands of survivals, and the export refuses at the last step.
+    //
+    // Measured on a 2,612-entity list of the size an agent-driven semantic pass
+    // produces: 13 spellings did that, every one an ordinary capitalised
+    // English word, 10,001 survivals, and no number of re-runs could ever
+    // succeed. That export now completes.
+    const records = [
+      {
+        type: 'assistant',
+        uuid: 'u1',
+        sessionId: 's1',
+        message: { role: 'assistant', model: null, content: [{ type: 'text', text: 'Model Nakamura wrote it' }] },
+      },
+    ];
+    const declared = [
+      { kind: 'person', spellings: ['Model'], confidence: 'high' },
+      { kind: 'person', spellings: ['Null'], confidence: 'high' },
+      { kind: 'person', spellings: ['Sessions'], confidence: 'high' },
+      { kind: 'person', spellings: ['tool_use'], confidence: 'high' },
+      { kind: 'person', spellings: ['Model Nakamura', 'Nakamura'], confidence: 'high' },
+    ];
+    const { entities, dropped } = stripStructuralSpellings(declared, records);
+
+    const kept = entities.flatMap((e) => e.spellings);
+    // A field name deident emits.
+    assert.ok(!kept.includes('Model'), 'a field name survived into the entity table');
+    // A JSON literal: matching is case-insensitive, so this eats every null.
+    assert.ok(!kept.includes('Null'), 'a JSON literal survived into the entity table');
+    // The archive entry names are scanned for residue too.
+    assert.ok(!kept.includes('Sessions'), `the entry root ${ENTRY_ROOT} survived into the entity table`);
+    // The closed vocabulary the retention table emits as VALUES.
+    assert.ok(!kept.includes('tool_use'), 'a retention-table value survived into the entity table');
+
+    // And the half that matters more: a real name is untouched, including one
+    // whose first word is a field name. Only the exact spelling goes.
+    assert.ok(kept.includes('Model Nakamura'), 'a real name beginning with a field name was dropped');
+    assert.ok(kept.includes('Nakamura'), 'a real name was dropped');
+    assert.equal(entities.length, 1, 'entities left with no spellings must not be kept as empty ones');
+
+    // Every drop is named, or the operator cannot tell a substitution they
+    // asked for from one that silently did not happen.
+    assert.equal(dropped.length, 4, `expected four named drops, got ${JSON.stringify(dropped)}`);
+    for (const d of dropped) assert.match(d, /^person: /, 'a drop does not say which entity it came from');
+  }],
+
+  ['F216', 'a residue refusal names the declared spellings responsible', () => {
+    // The remedy used to be one line, "file an issue against deident", which
+    // names the ONE cause an operator cannot act on and hides the one they can.
+    // A colleague re-ran an export in a shell loop for hours against a refusal
+    // whose cause was three words in a list an agent had written for them.
+    const scan = {
+      entityCount: 4175,
+      uuidCount: 0,
+      entityHits: [
+        ...Array.from({ length: 4057 }, () => ({ spelling: 'Null', excerpt: 'x', form: 'null', entityId: 'e1' })),
+        ...Array.from({ length: 81 }, () => ({ spelling: 'True', excerpt: 'x', form: 'true', entityId: 'e2' })),
+        ...Array.from({ length: 37 }, () => ({ spelling: 'Sessions', excerpt: 'x', form: 'sessions', entityId: 'e3' })),
+      ],
+      uuidHits: [],
+    };
+    const err = residueRefusal({ scan });
+    const text = [err.reason ?? '', ...(err.why ?? []), ...(err.remedies ?? []).map((r) => `${r.label} ${r.command}`)].join(String.fromCharCode(10));
+
+    for (const spelling of ['Null', 'True', 'Sessions']) {
+      assert.ok(text.includes(spelling), `the refusal does not name ${spelling}, so the operator cannot act on it`);
+    }
+    assert.ok(text.includes('4057'), 'the refusal does not say how many each spelling accounts for');
+    assert.ok(
+      text.includes('deident-entities.json'),
+      'the refusal does not offer the remedy the operator can actually apply',
+    );
+    // The bug-report remedy stays, second: sometimes it really is deident.
+    assert.ok(text.includes('file an issue against deident'), 'the bug-report remedy was removed entirely');
   }],
 
 ];

@@ -444,13 +444,46 @@ export function buildTable(entities, opts = {}) {
   for (const entry of entries) {
     // A case-insensitive entry is reachable from either case of its first
     // character, or the index would silently undo the whole point of it.
-    const keys = entry.lower
-      ? new Set([entry.spelling[0], entry.spelling[0].toLowerCase(), entry.spelling[0].toUpperCase()])
-      : new Set([entry.spelling[0]]);
-    for (const key of keys) {
+    for (const key of sourceCharsMatching(entry.spelling[0], entry.lower !== null)) {
       if (!byFirstChar.has(key)) byFirstChar.set(key, []);
       byFirstChar.get(key).push(entry);
     }
+  }
+
+  // Second-character index, over each first-character bucket.
+  //
+  // The first-character index alone is O(bucket) per candidate offset, and the
+  // bucket is the whole entity list divided by however many distinct first
+  // characters there are. Measured on 10 MB of a real archive: 50 entities ran
+  // at 9.7 MB/s and 2,612 at 0.3 MB/s, a 33x slowdown for 52x the entities, so
+  // the cost was linear in the ENTITY COUNT and not in the bytes. A colleague's
+  // corpus with 2,612 entities is not exotic; it is what an agent-driven
+  // semantic pass produces.
+  //
+  // Narrowing by the second character divides each bucket again. Nothing about
+  // MATCHING changes: an entry reached through this index is still put through
+  // matchesAt and both boundary tests, and F<N> asserts position by position
+  // that the narrowed bucket finds exactly what the full bucket finds.
+  const byPair = new Map();
+  for (const [first, bucket] of byFirstChar) {
+    // Length-1 spellings match whatever follows, end of string included, so
+    // they belong in every second-character list AND in the fallback. They are
+    // rare, so the duplicated references cost nothing.
+    const any = bucket.filter((e) => e.spelling.length === 1);
+    const bySecond = new Map();
+    for (const entry of bucket) {
+      if (entry.spelling.length < 2) continue;
+      for (const key of sourceCharsMatching(entry.spelling[1], entry.lower !== null)) {
+        if (!bySecond.has(key)) bySecond.set(key, []);
+        bySecond.get(key).push(entry);
+      }
+    }
+    // `entries` was sorted longest-first before this loop and both filters
+    // preserve that order, so appending the length-1 entries keeps every list
+    // longest-first, which is what longestMatchAt's minLength early-return
+    // depends on.
+    for (const list of bySecond.values()) list.push(...any);
+    byPair.set(first, { bySecond, any });
   }
 
   const byPseudonym = new Map();
@@ -461,6 +494,7 @@ export function buildTable(entities, opts = {}) {
   return Object.freeze({
     entries: Object.freeze(entries),
     byFirstChar,
+    byPair,
     byPseudonym,
     flagged: Object.freeze(flagged),
     forbidInside: opts.forbidInside ?? null,
@@ -503,7 +537,7 @@ export function substituteString(s, table, forbidOverride = undefined) {
   const spans = [];
 
   while (i < s.length) {
-    const bucket = table.byFirstChar.get(s[i]);
+    const bucket = bucketAt(table, s, i);
     if (bucket === undefined) {
       i += 1;
       continue;
@@ -533,7 +567,7 @@ export function substituteString(s, table, forbidOverride = undefined) {
     let replacement = hit.pseudonym;
     let absorbed = false;
     for (let j = i + 1; j < end; j += 1) {
-      const inner = table.byFirstChar.get(s[j]);
+      const inner = bucketAt(table, s, j);
       if (inner === undefined) continue;
       // Only a spelling LONGER than the remaining span can reach past it, and
       // buckets are sorted longest-first, so the search stops as soon as the
@@ -589,6 +623,44 @@ const EMPTY = Object.freeze([]);
  * `bucket` is already sorted longest-first, so the first valid hit is longest.
  * Exported for the verifier, which needs to ask this question independently.
  */
+/**
+ * Every SOURCE character that could match this needle character.
+ *
+ * The index is keyed on raw source characters, but a case-insensitive entry
+ * stores its needle already folded by `foldLower`, so the inverse of that fold
+ * is what has to go in the key set. `foldLower` is toLowerCase plus the one
+ * Greek special case, and this enumerates exactly that and nothing more: get it
+ * wrong and an entity silently stops matching, which is the failure this whole
+ * file is written against, so it is asserted directly rather than assumed.
+ */
+export function sourceCharsMatching(needleChar, caseInsensitive) {
+  if (!caseInsensitive) return [needleChar];
+  const keys = new Set([needleChar, needleChar.toLowerCase(), needleChar.toUpperCase()]);
+  // foldLower maps final sigma onto medial sigma, so a needle 'σ' must also be
+  // reachable from a source 'ς' and its capital.
+  if (needleChar === 'σ') {
+    keys.add('ς');
+    keys.add('Σ');
+  }
+  return [...keys];
+}
+
+/**
+ * The candidate entries at one offset, narrowed by the first TWO characters.
+ *
+ * Returns undefined when nothing could match here, which is the common case
+ * and the reason the scan is cheap at all.
+ */
+export function bucketAt(table, s, at) {
+  const idx = table.byPair.get(s[at]);
+  if (idx === undefined) return undefined;
+  const next = s[at + 1];
+  if (next === undefined) return idx.any.length === 0 ? undefined : idx.any;
+  const narrowed = idx.bySecond.get(next);
+  if (narrowed !== undefined) return narrowed;
+  return idx.any.length === 0 ? undefined : idx.any;
+}
+
 export function longestMatchAt(s, at, bucket, forbidden = null, minLength = 0) {
   for (const entry of bucket) {
     // Sorted longest-first, so once the entries are short enough there is
@@ -688,7 +760,7 @@ export function allOccurrences(s, table) {
   // its job as a bug.
   const forbidden = table.forbidInside ? collectForbidden(s, table.forbidInside) : null;
   for (let i = 0; i < s.length; i += 1) {
-    const bucket = table.byFirstChar.get(s[i]);
+    const bucket = bucketAt(table, s, i);
     if (bucket === undefined) continue;
     for (const entry of bucket) {
       const end = i + entry.spelling.length;
