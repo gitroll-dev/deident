@@ -27,6 +27,7 @@ accept is an error, not a silent no-op.
 | `--skip-unreadable` | `scan`, `export` | Continue past a line that is not valid JSON instead of exiting 3. Each skipped line is reported. |
 | `--skip-unknown-types` | `scan`, `export` | Drop records whose type deident has never seen instead of refusing. The dropped types and counts are printed in the "NOT protected against" block. Refusal stays the default; this exists because a harness ships a new record type every few weeks and one such line should not block a whole export. |
 | `--include-denied <name>` | `export` | Typed confirmation for one deny-listed workspace. Exact name, no globs. Repeatable. |
+| `--declare-nothing` | `export` | Record, once, that you have no literal values of your own to declare. Writes `~/.deident-private/known-values.json` with an empty list and the date; refuses rather than overwriting a file that already has one. Without either that file or this flag, `export` refuses: silence is not an answer, because an undeclared value is protected only where a reader happens to spot it. |
 | `--selftest` | global | Run the fixture suite and exit. |
 | `--help` | global | Print usage and exit 0. |
 | `--version` | global | Print the version and exit 0. |

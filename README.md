@@ -83,11 +83,18 @@ for every workspace, git remote or not, and one matching `private`, `identity`,
 <exact-name>`. What it buys is a bound: whatever the tool misses can only be missed
 inside a directory you typed by hand ([why](docs/design-rationale.md#opt-in-never-opt-out)).
 
-**Declare what deident cannot infer**, in `~/.deident-private/known-values.json`.
-A bare string is enough, `{"values": ["1974-11-03", {"kind": "person", "value":
-"Nora Lund"}]}`, and no file is the normal case, but it is the one list no inference
-reaches: an archive whose six checks were all green shipped 21 identity fields in
-plaintext for want of it ([story](docs/limits.md#deident-cannot-infer-the-list-of-your-own-literal-values)).
+**Your export will also refuse until you declare your own values**, in
+`~/.deident-private/known-values.json`. A bare string is enough, `{"values":
+["1974-11-03", {"kind": "person", "value": "Nora Lund"}]}`. It is the one list no
+inference reaches: deident works out your username, your paths and your git identity
+from this machine, and cannot work out that a string is your passport number, your
+date of birth or the spelling of your name on a document, because nothing on the
+machine says so. An archive whose six checks were all green shipped 21 identity
+fields in plaintext for want of this file
+([story](docs/limits.md#deident-cannot-infer-the-list-of-your-own-literal-values)).
+Genuinely nothing to declare? `node deident.js export --declare-nothing` records that
+answer once, and every later run says in its manifest that this archive replaced
+nothing because you named it.
 
 ## The four-stage funnel
 
@@ -157,7 +164,7 @@ edits have added > 0 with net == 0 (BRIEF §4.2).
 
 ## Development
 
-`node deident.js --selftest` runs 240 fixtures on plain `node:assert`, no framework,
+`node deident.js --selftest` runs 244 fixtures on plain `node:assert`, no framework,
 in `test/selftest.mjs`; each catches a specific bug, named in the fixture. Section
 numbers in the source refer to `BRIEF.md` and `PLAN.md`. Never commit a session log,
 an export, a preview diff or the salt; `.gitignore` covers all of them.

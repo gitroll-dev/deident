@@ -60,6 +60,12 @@ import { recordRead, loadReads, countReads, readsPath } from '../src/policy/read
 import { groupSessions, tailSegments, HOME_NAME, UNKNOWN_NAME } from '../src/policy/grouping.mjs';
 import { proposeTier, personalDataShape, GIT_UNAVAILABLE } from '../src/policy/signals.mjs';
 import { setUserDeny } from '../src/policy/userdeny.mjs';
+import {
+  KNOWN_VALUES_FILENAME,
+  declarationState,
+  declareNothing,
+  loadKnownValues,
+} from '../src/policy/knownvalues.mjs';
 import { limitLines } from '../src/cli/limits.mjs';
 import { readSession } from '../src/corpus/reader.mjs';
 import { probeCaseFolding, setCaseFolding, caseFolding, normalizeCwd } from '../src/corpus/cwdtrack.mjs';
@@ -584,7 +590,34 @@ function writableByThisProcess(file) {
  *
  * @returns {{code: number, out: string, candidateBytes: number}}
  */
+/**
+ * The declaration a real operator makes once, before any export can run.
+ *
+ * known-values.json is no longer optional (src/policy/knownvalues.mjs): an
+ * export that never had it refuses, because a run that declared nothing and a
+ * run that declared and got no hits used to print the same thing. Written here
+ * rather than inside runCli so the gate is still reachable: a fixture that
+ * wants to see the refusal simply does not call this.
+ *
+ * The timestamp is fixed and fabricated, so a fixture asserting on the manifest
+ * line is not comparing against today.
+ */
+const ACK_AT = '2026-08-25T09:00:00.000Z';
+
+function declareValues(saltDir, values = null) {
+  fs.mkdirSync(saltDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(saltDir, 'known-values.json'),
+    JSON.stringify(values === null ? { acknowledged: ACK_AT, values: [] } : { values }),
+    'utf8',
+  );
+  return path.join(saltDir, 'known-values.json');
+}
+
 function primeSemanticPass(root, out, saltDir, env = null, extra = []) {
+  // Every priming run is a run a person made after answering the declaration
+  // gate, so the fixture answers it the same way and for the same reason.
+  if (!fs.existsSync(path.join(saltDir, 'known-values.json'))) declareValues(saltDir);
   const r = runCli(['export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir, ...extra], env);
   assert.equal(r.code, 1, `the priming run should refuse for want of an entity list: ${r.out}`);
   const file = path.join(out, 'deident-candidates.txt');
@@ -2358,6 +2391,7 @@ const FIXTURES = [
       'utf8',
     );
     runCli(['scan', '--root', empty, '--out', emptyOut, '--salt-dir', path.join(empty, 'salt')]);
+    declareValues(path.join(empty, 'salt'));
     setTier(path.join(emptyOut, 'review.md'), 'beta', 'redact');
     const refused = runCli([
       'export', '--skip-secret-scan', '--root', empty, '--out', emptyOut, '--salt-dir', path.join(empty, 'salt'),
@@ -2918,6 +2952,7 @@ const FIXTURES = [
       'utf8',
     );
 
+    declareValues(saltDir);
     const scan = runCli(['scan', '--root', root, '--out', out, '--salt-dir', saltDir]);
     assert.equal(scan.code, 0, scan.out);
     assert.match(scan.out, /"maybe" is not a session decision/, 'the bad line is reported');
@@ -2987,6 +3022,7 @@ const FIXTURES = [
       '--entities', path.join(root, 'ents.json'),
     ];
 
+    declareValues(saltDir);
     assert.equal(runCli(['scan', '--root', root, '--out', scanned, '--salt-dir', saltDir]).code, 0);
     setTier(path.join(scanned, 'review.md'), 'alpha', 'exclude');
 
@@ -3055,6 +3091,7 @@ const FIXTURES = [
     const out = path.join(root, 'out');
     const saltDir = path.join(root, 'salt');
     writeCorpus(root);
+    declareValues(saltDir);
     const dir = path.join(root, 'projects', 'ws');
     const sid = '55555555-5555-4555-8555-555555555555';
     fs.writeFileSync(
@@ -5573,6 +5610,7 @@ const FIXTURES = [
     const saltDir = path.join(root, 'salt');
     writeCorpus(root);
     fs.mkdirSync(saltDir, { recursive: true });
+    declareValues(saltDir);
 
     const scan = runCli(['scan', '--root', root, '--out', out, '--salt-dir', saltDir], CORPUS_USER_ENV);
     assert.equal(scan.code, 0, scan.out);
@@ -5857,6 +5895,7 @@ const FIXTURES = [
     const saltDir = path.join(root, 'salt');
     const corpus = writeCorpus(root);
     writeLongPromptSession(root, corpus.cwd, 'PAST-THE-CAP '.repeat(2_000));
+    declareValues(saltDir);
     assert.equal(runCli(['scan', '--root', root, '--out', outDir, '--salt-dir', saltDir], CORPUS_USER_ENV).code, 0);
     setTier(path.join(outDir, 'review.md'), 'alpha', 'redact');
 
@@ -6295,6 +6334,7 @@ const FIXTURES = [
       );
     });
 
+    declareValues(saltDir);
     assert.equal(runCli(['scan', '--root', root, '--out', out, '--salt-dir', saltDir]).code, 0);
     setTier(path.join(out, 'review.md'), 'batch', 'redact');
 
@@ -6328,7 +6368,9 @@ const FIXTURES = [
     );
 
     // A budget below the size of any single session still offers one, or one
-    // oversized session stalls the loop forever.
+    // oversized session stalls the loop forever. A fresh salt directory, so it
+    // needs its own declaration.
+    declareValues(path.join(root, 'salt2'));
     const tiny = runCli(['export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', path.join(root, 'salt2'), '--batch-chars', '1']);
     assert.equal(tiny.code, 1, tiny.out);
     assert.match(
@@ -6680,6 +6722,7 @@ const FIXTURES = [
     const out = path.join(root, 'out');
     const saltDir = path.join(root, 'salt');
     writeCorpus(root);
+    declareValues(saltDir);
     assert.equal(runCli(['scan', '--root', root, '--out', out, '--salt-dir', saltDir], CORPUS_USER_ENV).code, 0);
     setTier(path.join(out, 'review.md'), 'alpha', 'redact');
 
@@ -6788,6 +6831,7 @@ const FIXTURES = [
     const out = path.join(root, 'out');
     const saltDir = path.join(root, 'salt');
     writeCorpus(root);
+    declareValues(saltDir);
     assert.equal(runCli(['scan', '--root', root, '--out', out, '--salt-dir', saltDir], CORPUS_USER_ENV).code, 0);
     setTier(path.join(out, 'review.md'), 'alpha', 'redact');
 
@@ -9043,6 +9087,7 @@ const FIXTURES = [
     ];
     fs.writeFileSync(path.join(dir, `${sid}.jsonl`), rows.map((r) => JSON.stringify(r)).join(NL) + NL, 'utf8');
 
+    declareValues(saltDir);
     assert.equal(runCli(['scan', '--root', root, '--out', out, '--salt-dir', saltDir]).code, 0);
     setTier(path.join(out, 'review.md'), 'queued', 'redact');
 
@@ -10673,6 +10718,306 @@ const FIXTURES = [
       assert.match(r.out, /--root is required/, r.out);
       assert.match(r.out, /does not guess one/, r.out);
     }
+  }],
+
+  // F245-F248. known-values.json was optional, and README called no file "the
+  // normal case". Tier 0 infers the username, the paths, the git identity and
+  // the git remotes off the machine; NOTHING on the machine says that a given
+  // string is the operator's passport number, so an operator who declared
+  // nothing got nothing for it while every check reported green. docs/limits.md
+  // carries the measurement: six green checks, 21 identity fields in plaintext.
+  //
+  // So the export asks once, and the answer is written down. These four fix the
+  // shape of that: the refusal, the acknowledged path, the declared path, and
+  // that no value is ever invented to fill the gap.
+
+  ['F245', 'an export with no known-values.json and no acknowledgement produces no archive', () => {
+    const root = tmpdir();
+    const out = path.join(root, 'out');
+    const saltDir = path.join(root, 'salt');
+    writeCorpus(root);
+    assert.equal(runCli(['scan', '--root', root, '--out', out, '--salt-dir', saltDir], CORPUS_USER_ENV).code, 0);
+    setTier(path.join(out, 'review.md'), 'alpha', 'redact');
+
+    // Deliberately NOT calling declareValues: this is the operator who has
+    // never been asked. The refusal has to arrive before anything is written,
+    // which on this path means before the candidates file exists at all.
+    const refused = runCli(
+      ['export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir],
+      CORPUS_USER_ENV,
+    );
+    assert.equal(refused.code, 1, `the undeclared export must refuse: ${refused.out}`);
+    assert.match(
+      refused.out,
+      /you have not told deident which values are your own/,
+      `the export refused, but not over the declaration: ${refused.out}`,
+    );
+    assert.equal(
+      fs.existsSync(out) && fs.readdirSync(out).filter((f) => f.endsWith('.zip')).length,
+      0,
+      'an archive was written for an operator who declared nothing and acknowledged nothing',
+    );
+    // And it refuses BEFORE the expensive pass, or the operator meets this
+    // after twenty minutes of retention rather than in the first second.
+    assert.equal(
+      fs.existsSync(path.join(out, 'deident-candidates.txt')),
+      false,
+      'the corpus was read before the declaration was asked for',
+    );
+
+    // The message has to be usable by somebody who has not read the docs, so
+    // it names the KIND of value and carries the shape of the file.
+    for (const needle of [/passport number/, /date of birth/, /"values"/, /"kind": "person"/]) {
+      assert.match(refused.out, needle, `the refusal does not say what belongs in the file: ${refused.out}`);
+    }
+    // Both routes out, named as runnable commands.
+    assert.match(refused.out, new RegExp(KNOWN_VALUES_FILENAME.replace('.', '\\.')), refused.out);
+    assert.match(refused.out, /--declare-nothing/, refused.out);
+
+    // --preview is on the same side of the gate. It is the run where the
+    // declaration still changes what the operator is shown, so answering the
+    // question afterwards would mean the preview was of a different export.
+    const preview = runCli(
+      ['export', '--preview', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir],
+      CORPUS_USER_ENV,
+    );
+    assert.equal(preview.code, 1, `--preview must meet the same gate: ${preview.out}`);
+    assert.match(preview.out, /you have not told deident which values are your own/, preview.out);
+    fs.rmSync(root, { recursive: true, force: true });
+  }],
+
+  ['F246', 'the acknowledged path exports, and the manifest says the operator declared nothing', () => {
+    const root = tmpdir();
+    const out = path.join(root, 'out');
+    const saltDir = path.join(root, 'salt');
+    writeCorpus(root);
+    assert.equal(runCli(['scan', '--root', root, '--out', out, '--salt-dir', saltDir], CORPUS_USER_ENV).code, 0);
+    setTier(path.join(out, 'review.md'), 'alpha', 'redact');
+
+    // The flag is the whole acknowledgement: one run with it, and no run after
+    // it needs the flag again. Nagging every run is what makes a gate the first
+    // thing switched off (F7).
+    const kvFile = path.join(saltDir, KNOWN_VALUES_FILENAME);
+    const primed = runCli(
+      ['export', '--skip-secret-scan', '--declare-nothing', '--root', root, '--out', out, '--salt-dir', saltDir],
+      CORPUS_USER_ENV,
+    );
+    assert.equal(primed.code, 1, `the priming run should refuse for want of an entity list: ${primed.out}`);
+    assert.ok(fs.existsSync(kvFile), 'the acknowledgement was not written down');
+    assert.deepEqual(loadKnownValues(saltDir), [], 'the acknowledgement declared something');
+    assert.match(
+      declarationState(saltDir).acknowledgedAt ?? '',
+      /^\d{4}-\d{2}-\d{2}T/,
+      'the acknowledgement carries no date, so nothing can say when it was given',
+    );
+
+    fs.writeFileSync(
+      path.join(root, 'ents.json'),
+      JSON.stringify({ entities: [{ kind: 'person', spellings: ['Nora Lund'], confidence: 'high' }] }),
+      'utf8',
+    );
+    const args = [
+      'export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir,
+      '--entities', path.join(root, 'ents.json'),
+    ];
+    // No --declare-nothing this time: the answer is on disk.
+    const done = runCli(args, CORPUS_USER_ENV);
+    assert.equal(done.code, 0, `the acknowledged export must succeed: ${done.out}`);
+    assert.equal(fs.readdirSync(out).filter((f) => f.endsWith('.zip')).length, 1, 'no archive was written');
+    assert.match(
+      done.out,
+      /you declared no values of your own/,
+      `the manifest does not say the operator declared nothing: ${done.out}`,
+    );
+    // And the honesty block says it too, which is the copy review.html and the
+    // --preview file render from.
+    assert.match(
+      done.out,
+      /this export declared NONE/,
+      `the "NOT protected against" block does not disclose the empty declaration: ${done.out}`,
+    );
+
+    // The one way this feature could do real damage: typed by mistake against a
+    // list that already exists. It refuses instead of overwriting.
+    fs.writeFileSync(kvFile, JSON.stringify({ values: ['Marguerite Okonkwo-Vance'] }), 'utf8');
+    const clobber = runCli([...args, '--declare-nothing'], CORPUS_USER_ENV);
+    assert.equal(clobber.code, 1, `--declare-nothing over an existing list must refuse: ${clobber.out}`);
+    assert.match(clobber.out, /already exists/, clobber.out);
+    assert.deepEqual(
+      loadKnownValues(saltDir).map((v) => v.value),
+      ['Marguerite Okonkwo-Vance'],
+      'the declared list was overwritten by the acknowledgement flag',
+    );
+    fs.rmSync(root, { recursive: true, force: true });
+  }],
+
+  ['F247', 'a run that declared nothing and a run that declared are different facts in the machine document', () => {
+    // The two used to print the same thing. `declaredValues: []` was emitted
+    // for an operator with no file at all and for one whose list found no
+    // hits, and a reader of the export could not tell an archive that was
+    // checked against a list from one that was never checked against anything.
+    const root = tmpdir();
+    const out = path.join(root, 'out');
+    writeCorpus(root);
+    // Fabricated. The corpus has to CONTAIN a declared value somewhere, or the
+    // "declared and it was applied" case cannot be told from "declared and it
+    // missed" either.
+    const corpusCwd = ['C:', 'Users', 'devuser', 'projects', 'alpha'].join(BS);
+    appendTurn(root, '11111111-1111-4111-8111-111111111111', corpusCwd, 'the ledger was signed by Nora Lund');
+    assert.equal(runCli(['scan', '--root', root, '--out', out, '--salt-dir', path.join(root, 'salt-0')], CORPUS_USER_ENV).code, 0);
+    setTier(path.join(out, 'review.md'), 'alpha', 'redact');
+    fs.writeFileSync(
+      path.join(root, 'ents.json'),
+      JSON.stringify({ entities: [{ kind: 'person', spellings: ['Nora Lund'], confidence: 'high' }] }),
+      'utf8',
+    );
+
+    // One salt directory per configuration, so each run is a separate operator
+    // making a separate declaration. Sharing one would be a different fixture:
+    // a declared value changes the tier-0-cleaned prose, so the session is
+    // shown to the reader again and the run refuses by name, which is correct
+    // and not what this is measuring.
+    const answer = (label, values) => {
+      const saltDir = path.join(root, `salt-${label}`);
+      declareValues(saltDir, values);
+      primeSemanticPass(root, out, saltDir, CORPUS_USER_ENV);
+      const r = runCli(
+        [
+          'export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir,
+          '--entities', path.join(root, 'ents.json'), '--json',
+        ],
+        CORPUS_USER_ENV,
+      );
+      assert.equal(r.code, 0, r.out);
+      return JSON.parse(r.out);
+    };
+
+    // declareValues with no list writes the acknowledgement: declared nothing.
+    const none = answer('none', null);
+    assert.equal(none.manifest.declared.values, 0);
+    assert.equal(none.manifest.declared.acknowledgedAt, ACK_AT, 'the date the operator answered is not in the document');
+    assert.deepEqual(none.declaredValues, []);
+
+    // A declared value the corpus never contains: zero hits, and still a
+    // different claim from declaring nothing. This is the pair that used to be
+    // indistinguishable, and `declaredValues` alone still cannot separate them
+    // once every row is a miss.
+    const zero = answer('zero', ['1974-11-03']);
+    assert.equal(zero.manifest.declared.values, 1, 'a declared value that matched nothing was reported as no declaration');
+    assert.equal(zero.manifest.declared.acknowledgedAt, null, 'a real declaration was reported as an acknowledgement');
+    assert.notDeepEqual(
+      zero.manifest.declared,
+      none.manifest.declared,
+      'declaring nothing and declaring a value that missed read the same',
+    );
+
+    // And a declared value the corpus does contain.
+    const hits = answer('hits', [{ kind: 'person', value: 'Nora Lund' }, '1974-11-03']);
+    assert.equal(hits.manifest.declared.values, 2);
+    assert.ok(
+      hits.declaredValues.some((r) => r.value === 'Nora Lund' && r.count > 0),
+      `the declared value that was replaced is not reported: ${JSON.stringify(hits.declaredValues)}`,
+    );
+    // And the same distinction reaches the reader who never saw the terminal:
+    // limitLines is the one copy of the honesty block that the manifest, the
+    // --preview file and review.html all render (src/cli/limits.mjs), built
+    // here from the manifest each run really produced.
+    const block = (doc) => limitLines(doc.manifest).join(NL);
+    assert.match(
+      block(none),
+      /this export declared NONE/,
+      'the run that declared nothing does not disclose it where a reader of the export would look',
+    );
+    // Conditional on the declaration, and it disappears when there is one, or
+    // it would be a disclosure about a control that ran (cli-ux 6).
+    for (const doc of [zero, hits]) {
+      assert.doesNotMatch(block(doc), /declared NONE/, 'a run that declared values still discloses that it declared none');
+    }
+    fs.rmSync(root, { recursive: true, force: true });
+  }],
+
+  ['F248',
+ 'no personal value is ever inferred from the machine to fill the declaration', () => {
+    // The gate exists BECAUSE inference cannot reach these values. A guess
+    // substituted across the corpus wrecks the prose and protects nobody, and
+    // the tempting line is one line: read a full name off the environment, or
+    // off git config, and call the file answered.
+    //
+    // Asserted by scanning the source, the way F220 asserts the scanner's
+    // flags. seed.mjs reads git config and os.userInfo on purpose, and that is
+    // tier 0 doing its job; the point here is that the DECLARED list has one
+    // producer and it cannot reach the machine at all. Its only input is the
+    // path it is handed.
+    const repo = fileURLToPath(new URL('..', import.meta.url));
+    const file = path.join(repo, 'src', 'policy', 'knownvalues.mjs');
+    const source = fs.readFileSync(file, 'utf8');
+    assert.ok(source.length > 1_000, 'the source scan read nothing, so it asserts nothing');
+    for (const needle of [
+      'process.env', 'child_process', 'execFileSync', 'execSync', 'spawnSync',
+      'userInfo(', 'homedir', 'gitConfig', 'seedEntities', 'os.',
+    ]) {
+      assert.ok(
+        !source.includes(needle),
+        `src/policy/knownvalues.mjs contains "${needle}": the declared list can reach the machine`,
+      );
+    }
+    // The one import it takes from the tier-0 module is the KIND vocabulary, a
+    // frozen list of words. Anything else from there is a value producer.
+    const fromSeed = [...source.matchAll(/import\s*\{([^}]*)\}\s*from\s*'[^']*seed\.mjs'/g)]
+      .flatMap((m) => m[1].split(',').map((x) => x.trim()))
+      .filter((x) => x !== '');
+    assert.deepEqual(fromSeed, ['KINDS'], `knownvalues.mjs imports more than the kind list from seed.mjs: ${fromSeed}`);
+
+    // And behaviourally, on an environment stuffed with the shapes a guess
+    // would come from. Fabricated, and never a name from this machine.
+    const planted = Object.freeze({
+      ...CORPUS_USER_ENV,
+      FULLNAME: 'Marguerite Okonkwo-Vance',
+      REAL_NAME: 'Marguerite Okonkwo-Vance',
+      USER_BIRTHDATE: '1974-11-03',
+    });
+    const root = tmpdir();
+    const out = path.join(root, 'out');
+    const saltDir = path.join(root, 'salt');
+    writeCorpus(root);
+    assert.equal(runCli(['scan', '--root', root, '--out', out, '--salt-dir', saltDir], planted).code, 0);
+    setTier(path.join(out, 'review.md'), 'alpha', 'redact');
+
+    // Still refuses: a machine full of name-shaped environment is not a
+    // declaration, and reading one as an answer is the failure this asserts.
+    const refused = runCli(
+      ['export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir],
+      planted,
+    );
+    assert.equal(refused.code, 1, `a stuffed environment answered the gate: ${refused.out}`);
+    assert.equal(declarationState(saltDir).present, false, 'a declaration appeared without the operator writing one');
+
+    // Acknowledged, the declared list is empty and stays empty. Nothing was
+    // put in it on the operator's behalf.
+    const ack = declareNothing(saltDir);
+    assert.deepEqual(loadKnownValues(saltDir), [], 'the acknowledgement was filled in from the environment');
+    assert.ok(
+      !fs.readFileSync(ack.file, 'utf8').includes('Okonkwo-Vance'),
+      'a name from the environment was written into the declaration file',
+    );
+    primeSemanticPass(root, out, saltDir, planted);
+    fs.writeFileSync(
+      path.join(root, 'ents.json'),
+      JSON.stringify({ entities: [{ kind: 'person', spellings: ['Nora Lund'], confidence: 'high' }] }),
+      'utf8',
+    );
+    const done = runCli(
+      [
+        'export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir,
+        '--entities', path.join(root, 'ents.json'), '--json',
+      ],
+      planted,
+    );
+    assert.equal(done.code, 0, done.out);
+    const doc = JSON.parse(done.out);
+    assert.equal(doc.manifest.declared.values, 0, 'the declared count was not the file');
+    assert.deepEqual(doc.declaredValues, [], `a value was invented: ${JSON.stringify(doc.declaredValues)}`);
+    fs.rmSync(root, { recursive: true, force: true });
   }],
 
 ];
