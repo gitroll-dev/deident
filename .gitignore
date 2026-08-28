@@ -28,6 +28,8 @@ entities.json
 deident-triage.txt
 deident-triage.json
 export-map.txt
+# The label the export writes beside its artifacts.
+WHAT-TO-SEND.txt
 EXPORT-DECISIONS.md
 esc.mjs
 .impeccable/

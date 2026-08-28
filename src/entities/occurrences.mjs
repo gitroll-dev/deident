@@ -54,7 +54,7 @@ const NOTE = [
   'deident review --entity <TOKEN>. This file pairs pseudonyms with the real',
   'spellings AND the real session ids, which makes it the one thing on this machine',
   'that can re-identify the archive. It is local only. Never share it, never commit',
-  'it, and never put it in the output directory beside the zip.',
+  'it, and never put it in the output directory.',
 ].join(' ');
 
 /**

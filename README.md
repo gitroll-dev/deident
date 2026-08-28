@@ -99,7 +99,7 @@ nothing expensive ever reads a session that was never going to be exported.
 | `scan` | one pass, no reader | `review.md`: a census and a proposed tier per workspace |
 | `triage` | 23 KB, the head of each session only | `deident-triage.txt`: one first prompt per still-kept session |
 | `export --preview` | about 3.5 MB, roughly 900k tokens | `deident-candidates.txt` and a before/after `.diff` |
-| `export --entities` | the same again | the zip, and `export-map.txt` |
+| `export --entities` | the same again | `send/`, holding the zip and nothing else, plus `export-map.txt` and `WHAT-TO-SEND.txt` |
 
 Measured 2026-08-24 on a 205-session corpus. Triage is optional and a verdict may
 only ever **drop** a session; `export` runs every check before writing anything, and
@@ -115,20 +115,35 @@ per session: a second run reads only what is new or changed, a changed session
 refuses by name, and `export --full` re-reads everything ([why it is
 mandatory](docs/design-rationale.md#the-semantic-pass-is-mandatory)).
 
-### Files that stay on your machine
+### What you may send, and what stays on your machine
 
-`review.md` (raw paths and workspace names), `deident-candidates.txt` (prose the
-semantic pass has not seen yet), `known-values.json` (what you declared as your
-own), `export-map.txt` (real session ids against archive entries),
-`deident-preview-<date>.diff` (the original text beside the redacted text, written
-into the output directory, so move it before you send that directory), and
-`~/.deident-private/occurrences.json`, the most re-identifying thing deident writes,
-which pairs every pseudonym with its real text and so backs `review --entity
-PERSON_11`, the only way to tell a name replaced 991 times from an ordinary word.
-Beside them, the salt: never written into any output, and the only thing between a
-pseudonym and the name behind it ([and what reversal cannot
-do](docs/design-rationale.md#reversal-and-the-salt)). All of it is **local only,
-never shared, never committed.**
+The archive is the only thing that may leave, so it is the only thing in
+`<out>/send/`. Everything else deident writes stays at the top level of `<out>`,
+outside it, and `<out>/WHAT-TO-SEND.txt` lists every file with which side it is
+on. **Send the contents of `send/` and nothing else.**
+
+```
+<out>/
+  send/
+    deident-export-<date>.zip     the archive. This, and only this
+  WHAT-TO-SEND.txt                the label: every file, and whether it may leave
+  review.md                       real paths and workspace names
+  deident-triage.txt              each session's first prompt, raw
+  deident-candidates.txt          prose the semantic pass has not seen yet
+  export-map.txt                  real session ids against archive entries
+  deident-preview-<date>.diff     the original text beside the redacted text
+```
+
+`send/` is an allowlist rather than a rule to remember: a new artifact is written
+outside it and is un-sendable by default. Beside those, in
+`~/.deident-private/`: `known-values.json` (what you declared as your own),
+`occurrences.json`, the most re-identifying thing deident writes, which pairs
+every pseudonym with its real text and so backs `review --entity PERSON_11`, the
+only way to tell a name replaced 991 times from an ordinary word, and the salt,
+never written into any output, the only thing between a pseudonym and the name
+behind it ([and what reversal cannot
+do](docs/design-rationale.md#reversal-and-the-salt)). Everything named here
+except the zip is **local only, never shared, never committed.**
 
 ## What is in the zip
 
@@ -157,7 +172,7 @@ edits have added > 0 with net == 0 (BRIEF §4.2).
 
 ## Development
 
-`node deident.js --selftest` runs 240 fixtures on plain `node:assert`, no framework,
+`node deident.js --selftest` runs 244 fixtures on plain `node:assert`, no framework,
 in `test/selftest.mjs`; each catches a specific bug, named in the fixture. Section
 numbers in the source refer to `BRIEF.md` and `PLAN.md`. Never commit a session log,
 an export, a preview diff or the salt; `.gitignore` covers all of them.

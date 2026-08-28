@@ -10,8 +10,9 @@
 // This file records nothing about content and nothing about entities. It is a
 // list of session ids with the date each was opened, which is strictly less
 // than occurrences.json already holds, and it lives beside the salt for the
-// same reason: a real session id is a re-identification handle for the archive
-// and the output directory is the one the person zips up and sends.
+// same reason: a real session id is a re-identification handle for the archive,
+// and the output directory is the one the person is standing in when they send
+// it.
 //
 // It is NOT a gate. cli-ux §12b argues the case against adding a seventh check
 // that repeats what the six already do; the case here is narrower. A gate a
@@ -34,7 +35,7 @@ const NOTE = [
   'Sessions you opened in full with "deident review --session", and when. The export',
   'states this count against the number of sessions it shipped, and states the rest as',
   'unverified. It holds real session ids, so it is local only: never share it, never',
-  'commit it, and never put it in the output directory beside the zip.',
+  'commit it, and never put it in the output directory.',
 ].join(' ');
 
 const EMPTY = Object.freeze({ sessions: Object.freeze({}), entities: Object.freeze({}) });

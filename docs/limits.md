@@ -162,7 +162,9 @@ people's handles, and the deny-list token that matched each excluded directory.
 It has to be, or you could not recognise the rows you are deciding about. Treat
 it like the salt: local only, never pasted into a ticket, never committed. Same
 for `deident-candidates.txt`, which holds prose the semantic pass has not seen
-yet.
+yet. Both sit at the top level of `--out`, outside `send/`, which holds the
+archive and nothing else; `WHAT-TO-SEND.txt` in the same directory says which
+file is on which side.
 
 ## Device fingerprint survives
 
