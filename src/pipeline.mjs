@@ -87,6 +87,7 @@ import {
 import { checkDeclaredValues } from './verify/declared.mjs';
 import { verifyArchive } from './verify/archive.mjs';
 import { scanForSecrets } from './verify/secretscan.mjs';
+import { sweepDenied } from './verify/sweep.mjs';
 import { writeZip, readZipFile, safeUnlink } from './output/zip.mjs';
 import { sendDir, manifestPath, writeSendManifest } from './output/sendable.mjs';
 import { writePreview } from './output/preview.mjs';
@@ -1396,6 +1397,23 @@ export async function runExport(flags, env) {
     );
     report.renderOnDiskResidue(shipped.length, onDisk);
     if (!onDisk.ok) throw residueRefusal(onDisk);
+
+    // The same idea for the other half of the contract, over the same bytes.
+    //
+    // The residue check is the only gate in this tool whose subject is the
+    // finished archive, and it knows entity SPELLINGS. Denial,
+    // injection-stripping and the placeholder are enforced at whichever call
+    // site remembered to call them, which is why the tool has been fixed four
+    // separate times for one list per caller. Six of the confirmed findings
+    // are visible here without anyone enumerating a route.
+    //
+    // It reports and does not refuse. Measured on the archive shipped
+    // 2026-08-27 with the markers excluded: 8 hits before, 7 after the
+    // DENY_TOKEN fix removed a PowerShell property name that read as a
+    // deny-listed directory. The 7 that remain are the limit README already
+    // states, so a refusal here would refuse every export this machine makes.
+    // §F7: the first thing a check that cries wolf loses is being run.
+    report.renderDenySweep(shipped.length, sweepDenied(shipped));
 
     // The credential half of the same idea, over the same bytes.
     //

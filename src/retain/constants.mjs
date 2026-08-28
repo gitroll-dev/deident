@@ -222,10 +222,50 @@ export const DENIED_USER_FILENAME = 'denied.json';
 // policy/userdeny.mjs and the segment test in records.mjs, which is what
 // applies them.
 const DENY_PATH_TOKENS = ['private', 'identity', 'payroll'];
+
+/**
+ * The token, and the one thing that must not be immediately before it.
+ *
+ * Both patterns below allow up to 60 segment characters ahead of the token, so
+ * `Identity` inside `UpdateIdentity` was a match and a PowerShell property name
+ * in a tool_use `command` parameter read as a deny-listed directory. Measured
+ * on the archive shipped 2026-08-27: one such hit, in
+ * `$($_.UpdateIdentity.RevisionNumber)`, where the separator that completed the
+ * match was the backslash of a JSON `\"` escape.
+ *
+ * A path segment never runs an ordinary word straight into the token: the
+ * character before it is a separator, a dot, a dash or an underscore. A
+ * CamelCase identifier always does. So the test is one letter.
+ * `.identity-private/` and `ops-handover\private\` still match; `UpdateIdentity`
+ * and `HeroIdentity.tsx` do not. The `i` flag covers both cases of the class.
+ *
+ * The second alternative is not a refinement, it is the reason the first one
+ * cannot ship alone. Tightening a deny pattern is the dangerous direction, so
+ * the loss was measured rather than reasoned, and the letter test on its own
+ * dropped a REAL deny-listed path: grep output pasted into a tool parameter
+ * arrives as `…control.\nprivate/cpa-search/OUTREACH-DRAFTS.md:135:`, where the
+ * escape's own `n` is the letter before the token. `\` then one letter is an
+ * escape, never a word, so the token is still a segment head there.
+ *
+ * Measured over the live corpus, 3,783 files, every DECODED string value of
+ * every record, which is the surface `deniedReason` sees rather than the raw
+ * JSON: 43,543 matches before, 43,448 after, 95 lost across 15 distinct
+ * shapes, and every one of them is a word glued to the token rather than a
+ * path segment: `sessionIdentity` (69), `leprivate`, `cloudidentity`,
+ * `apspayroll`, `www.surepayroll`, `WorkforceIdentity`, `MovePayroll`,
+ * `loadPrivateRules`, `isPrivate`.
+ *
+ * One of the fifteen is a path and is stated rather than hidden:
+ * `\raykuprojectsops-handoverprivate`, twice, a real deny-listed path whose
+ * separators were already gone before deident saw it. The same path spelled
+ * with its separators still matches, and a rule that admitted this one would
+ * have to admit every word ending in a letter.
+ */
+const DENY_TOKEN =
+  '(?:(?<![a-z])|(?<=\\\\[a-z]))(?:' + DENY_PATH_TOKENS.join('|') + ')';
+
 export const DENIED_PATH_RE = new RegExp(
-  '[\\\\/][^\\\\/\\s"' + String.fromCharCode(39) + '`]{0,60}?(?:' +
-    DENY_PATH_TOKENS.join('|') +
-    ')',
+  '[\\\\/][^\\\\/\\s"' + String.fromCharCode(39) + '`]{0,60}?' + DENY_TOKEN,
   'i',
 );
 
@@ -239,9 +279,9 @@ export const DENIED_PATH_RE = new RegExp(
  * English sentence "a private repo": there the next character is a space.
  */
 export const DENIED_PATH_HEAD_RE = new RegExp(
-  '(?:^|[\\s"' + String.fromCharCode(39) + '`(=])[^\\\\/\\s"' + String.fromCharCode(39) + '`]{0,60}?(?:' +
-    DENY_PATH_TOKENS.join('|') +
-    ')[^\\\\/\\s"' + String.fromCharCode(39) + '`]{0,60}?[\\\\/]',
+  '(?:^|[\\s"' + String.fromCharCode(39) + '`(=])[^\\\\/\\s"' + String.fromCharCode(39) + '`]{0,60}?' +
+    DENY_TOKEN +
+    '[^\\\\/\\s"' + String.fromCharCode(39) + '`]{0,60}?[\\\\/]',
   'i',
 );
 

@@ -978,6 +978,65 @@ export function renderOnDiskResidue(entryCount, check) {
 }
 
 /**
+ * Every deny rule, re-run over the same shipped bytes, reported and not refused.
+ *
+ * The row above it is a gate and prints FAILED. This one never does, and the
+ * difference is stated in the row rather than left for a reader to infer: on
+ * the archive shipped 2026-08-27 the sweep finds 7 hits that are all the limit
+ * README already states, a memory FILENAME sitting in prose that never opened
+ * the file, and a row that printed FAILED on every export would be switched off
+ * within a week. So the row says `reported` rather than nothing: a blank where
+ * every other row carries a verdict is the shape a reader fills in as failure.
+ *
+ * So the hits are rendered as what they are, a disclosure specific to THIS
+ * archive, in the voice limits.mjs uses. They cannot be rendered INSIDE that
+ * block: renderManifest runs at pipeline step 16 and the zip does not exist
+ * until step 17, so the limits block is already on screen by the time these
+ * bytes can be read. The last line names the block they belong to instead.
+ *
+ * A hit is never silent. `renderGluedResidue` returning nothing at all is the
+ * shape limits.mjs records as reading like a clean result when it means not
+ * examined, so the clean case prints its row too.
+ */
+export function renderDenySweep(entryCount, sweep) {
+  if (machine !== null) {
+    machineAdd({
+      denySweep: {
+        entries: entryCount,
+        total: sweep.total,
+        byList: sweep.byList,
+        hits: sweep.hits,
+        refuses: false,
+      },
+    });
+    return;
+  }
+  say(`    ${pad('output deny sweep', 23)} ${n(entryCount)} entries swept, ${sweep.detail}${sweep.ok ? '   ok' : '   reported'}`);
+  if (sweep.ok) return;
+  // stderr, beside the other findings this tool reports without gating on.
+  warn('');
+  warn(`  ${n(sweep.total)} deny-rule ${sweep.total === 1 ? 'hit is' : 'hits are'} in the archive that was just written. The lists were re-run`);
+  warn('  over the entries read back out of the zip, so this is what the recipient has,');
+  warn("  not what the retention pass intended. deident's own withheld-by markers are");
+  warn('  excluded from the count.');
+  for (const r of sweep.byList) {
+    warn(`      ${padLeft(n(r.count), 6)}  ${r.list}`);
+  }
+  warn('');
+  for (const h of sweep.hits) {
+    warn(`      ${pad(h.list, 20)} ${h.entry}`);
+    warn(`      ${' '.repeat(20)} ${h.excerpt.slice(0, 60)}`);
+  }
+  if (sweep.total > sweep.hits.length) warn(`      ... and ${n(sweep.total - sweep.hits.length)} more`);
+  warn('');
+  warn('    This does not refuse and is not a failed check. DENIED_CONTENT is a filename');
+  warn('    test that gates a tool parameter and an attachment; prose that merely NAMES a');
+  warn('    file is the limit printed above as "the bare NAME of a file or directory you');
+  warn('    discussed". Read the rows: a hit on any other list is one nothing else caught.');
+  warn('');
+}
+
+/**
  * Whether the credential scan ran, printed whether it did or not.
  *
  * The "not run" case is the one that matters. A gate whose absence is silent is
