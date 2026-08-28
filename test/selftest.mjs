@@ -11297,6 +11297,76 @@ const FIXTURES = [
     fs.rmSync(root, { recursive: true, force: true });
   }],
 
+  ['F255', 'nothing decides from process.platform what the filesystem can be asked', () => {
+    // macOS is the platform that makes this a rule rather than a preference.
+    // On Windows the guess is always right and on Linux it is always right;
+    // on macOS `process.platform === 'darwin'` says "folds case" about a
+    // volume the operator may have formatted case-sensitive, which is a
+    // supported way to install the OS. Guessing wrong merges two real
+    // directories into one workspace row carrying one tier and one displayed
+    // path, so a person who sets `redact` on the row they can see sets it on a
+    // directory they were never shown.
+    //
+    // Scanned rather than reviewed, because the wrong version of this is one
+    // line long and reads as obviously correct in a diff.
+    const repo = fileURLToPath(new URL('..', import.meta.url));
+    const files = [];
+    (function walk(dir) {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, e.name);
+        if (e.isDirectory()) walk(full);
+        else if (e.name.endsWith('.mjs')) files.push(full);
+      }
+    })(path.join(repo, 'src'));
+    assert.ok(files.length > 20, `the scan found ${files.length} modules, so it is asserting nothing`);
+
+    // Prose ABOUT process.platform is how this rule is explained in four
+    // places, so a comment line is not an offender. A line of code is.
+    const offenders = [];
+    for (const file of files) {
+      const lines = fs.readFileSync(file, 'utf8').split(String.fromCharCode(10));
+      for (let i = 0; i < lines.length; i += 1) {
+        if (!lines[i].includes('process.platform')) continue;
+        const text = lines[i].trim();
+        if (text.startsWith('*') || text.startsWith('//') || text.startsWith('/*')) continue;
+        offenders.push(`${path.relative(repo, file).split(SEP).join('/')}:${i + 1}  ${text}`);
+      }
+    }
+    assert.equal(
+      offenders.length,
+      1,
+      `process.platform decides behaviour in ${offenders.length} places: ${offenders.join('  |  ')}`,
+    );
+    assert.match(
+      offenders[0],
+      /^src\/corpus\/cwdtrack\.mjs:\d+ {2}let foldCase = /,
+      `the one permitted use moved or changed shape: ${offenders[0]}`,
+    );
+
+    // And that one is a DEFAULT, which is only safe because something replaces
+    // it. Set it to the answer a platform guess would give on the wrong volume,
+    // then let startup run: the filesystem's answer has to win. Deleting the
+    // two lines in root.mjs that ask leaves every fixture above green and this
+    // one red, which is the whole reason it is here.
+    const was = caseFolding();
+    const root = tmpdir();
+    try {
+      writeCorpus(root);
+      const probed = probeCaseFolding(resolveRoot({}, root).sessionsDir);
+      assert.notEqual(probed, null, 'the probe could not answer about a directory it had just created');
+      setCaseFolding(!probed);
+      resolveCorpus({}, root);
+      assert.equal(
+        caseFolding(),
+        probed,
+        'startup kept the per-platform guess instead of the answer the filesystem gave',
+      );
+    } finally {
+      setCaseFolding(was);
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  }],
+
 ];
 
 export function selftest() {

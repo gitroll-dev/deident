@@ -189,7 +189,7 @@ edits have added > 0 with net == 0 (BRIEF §4.2).
 
 ## Development
 
-`node deident.js --selftest` runs 250 fixtures on plain `node:assert`, no framework,
+`node deident.js --selftest` runs 251 fixtures on plain `node:assert`, no framework,
 in `test/selftest.mjs`; each catches a specific bug, named in the fixture. Section
 numbers in the source refer to `BRIEF.md` and `PLAN.md`. Never commit a session log,
 an export, a preview diff or the salt; `.gitignore` covers all of them.
