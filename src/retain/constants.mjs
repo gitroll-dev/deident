@@ -64,6 +64,39 @@ export const MIN_CJK_ENTITY_CODEPOINTS = 2;
  */
 export const MIN_REPLAY_MATCH_CHARS = 40;
 
+/**
+ * How deeply one record may nest before deident refuses to read it.
+ *
+ * This is deident's own bound, and it exists because until now there was none.
+ * The reader relied on `JSON.parse` and `JSON.stringify` running out of stack,
+ * which is not a limit anybody chose: it is a V8 implementation detail that
+ * moves with the platform, the Node version and the thread's stack size. Same
+ * input, same Node 22, one record nested 6,000 levels: win32/arm64 refuses it,
+ * macos-latest parses it and keeps it. A guarantee that differs by operating
+ * system is not one, and the permissive side is the dangerous side, because the
+ * record is then retained and every walker downstream of the reader is
+ * recursive.
+ *
+ * The runtime's own numbers, measured on Node 22.23.1 win32/arm64, for scale.
+ * `JSON.parse` is iterative now and survives 200,000, so the reader's first
+ * RangeError guard had stopped catching anything at all; `JSON.stringify` gives
+ * up at 2,107; `substituteRecord` at 2,245. Three unrelated numbers within 6%
+ * of each other were the whole of what stood between a deep record and a crash
+ * partway through an export, and nobody had chosen their order.
+ *
+ * The value is a bug detector, not a budget. Measured over the live corpus on
+ * this machine, 3,850 session files and 341,320 records across every harness
+ * present: the deepest record nests 12, and 99.97% nest 9 or fewer. 100 is
+ * eight times the deepest thing real logs contain, and more than an order of
+ * magnitude below the tightest runtime limit above, so what refuses a deep
+ * record is always this number and never the stack.
+ *
+ * Raising it towards those runtime limits reinstates exactly the bug it was
+ * added for. Lowering it costs a false refusal, which is loud, exit 3, names
+ * the file and the line, and has a remedy that works.
+ */
+export const MAX_RECORD_DEPTH = 100;
+
 /** How many example occurrences a refusal or a review row prints. */
 export const EXAMPLES_PER_REPORT = 5;
 
