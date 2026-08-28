@@ -56,7 +56,15 @@ const WHY = new Map([
 function why(name) {
   const known = WHY.get(name);
   if (known !== undefined) return known;
-  if (/^deident-preview-.*\.diff$/.test(name)) return 'the original text beside the redacted text';
+  // Not "the original text beside the redacted text" any more: excerptAt was
+  // changed to cut its windows from the SUBSTITUTED string, and the file's own
+  // header now says it pairs no pseudonym to a spelling. What is still raw is
+  // the flagged block, which prints `entity.canonical` verbatim for every
+  // entity the safety rules refused to substitute, and no check can see it:
+  // buildTable puts a null-pseudonym entity in `table.flagged` and the residue
+  // scan reads `table.entries` only. A label that describes content the file
+  // stopped carrying is a label nobody checks against the content it does.
+  if (/^deident-preview-.*\.diff$/.test(name)) return 'the spellings deident refused to substitute, printed in the clear';
   return 'deident did not write this, so it cannot vouch for it';
 }
 

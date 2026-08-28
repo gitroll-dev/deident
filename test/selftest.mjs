@@ -95,7 +95,7 @@ import {
   defaultSaltDir,
 } from '../src/entities/pseudonym.mjs';
 import { SEND_DIRNAME, MANIFEST_FILENAME, sendDir, manifestPath } from '../src/output/sendable.mjs';
-import { renderPreview } from '../src/output/preview.mjs';
+import { renderPreview, writePreview } from '../src/output/preview.mjs';
 import {
   parseReview,
   parseSessionDrops,
@@ -11294,6 +11294,187 @@ const FIXTURES = [
     const doc = JSON.parse(done.out);
     assert.equal(doc.manifest.declared.values, 0, 'the declared count was not the file');
     assert.deepEqual(doc.declaredValues, [], `a value was invented: ${JSON.stringify(doc.declaredValues)}`);
+    fs.rmSync(root, { recursive: true, force: true });
+  }],
+
+  // F255-F257. `--preview` called writePreview and RETURNED, above the
+  // writeZip / readZipFile / checkResidue block. So the artifact an engineer is
+  // told to read "before anything does leave" was produced by a renderer whose
+  // output no check had ever scanned.
+  //
+  // Three things already written down in this repository say why that is worse
+  // than it sounds. readZipFile exists because "a reviewer was handed something
+  // that was not what shipped three separate times, and each time the gap was
+  // where the leak lived", and that lesson was applied to the zip and not to
+  // the preview, which has the same property and a worse audience. excerptAt
+  // records that this renderer already shipped one version of the defect:
+  // windows cut from the ORIGINAL string put the username and the home path
+  // beside the pseudonym. And pipeline.mjs argues occurrences.json must not sit
+  // in `--out` because "that is the directory a person zips up and sends",
+  // while the preview diff is written into `--out`.
+  ['F255', 'a known entity in the rendered preview refuses, and no file is left behind', () => {
+    // The gate is asserted at writePreview rather than through the CLI because
+    // no CLI input reaches it today, and that is a measurement rather than an
+    // assumption. Every rendering in this file except two runs the merged table
+    // over itself; the two that do not are the flagged block's `canonical` and
+    // `rejected`, which have no pseudonym to print instead. On today's
+    // rejectReason set a flagged canonical is blank, under three characters,
+    // one CJK character, or a bare filesystem root, so it cannot CONTAIN
+    // another entity's spelling and cannot trip this. Measured 2026-08-28 over
+    // the live corpus: 0 entity occurrences, 0 unknown uuids, and the flagged
+    // block read `(none)`.
+    //
+    // That is a fact about one version of one function. rejectReason gains
+    // reasons, and the first reason that rejects a long spelling makes this
+    // reachable from the entity list with no other change. The check is the
+    // thing under test, so the state is built at the seam the check guards.
+    const table = buildTable([entity('P1', 'person', 'Nora Lund', 'PERSON_1')]);
+    const root = tmpdir();
+    const outPath = path.join(root, 'deident-preview-2026-08-28.diff');
+
+    const state = {
+      generated: '2026-08-28 00:00',
+      strings: [],
+      table,
+      minted: new Set(),
+      entities: [
+        entity('P1', 'person', 'Nora Lund', 'PERSON_1'),
+        // Flagged, so buildTable routes it to `table.flagged` and renderPreview
+        // prints it verbatim. Its canonical carries another entity's spelling
+        // out with it, which is the only way this rendering can leak.
+        {
+          id: 'W1', kind: 'workspace', canonical: 'notes for Nora Lund', spellings: [],
+          pseudonym: null, confidence: 'flagged', tier: 0, source: 'fixture',
+          rejected: 'flagged for the purposes of this fixture',
+        },
+      ],
+      manifest: { sessions: 1, workspaces: 1, userMessages: 1, zeros: [] },
+      checks: [],
+    };
+
+    // It is genuinely in the rendering, or the fixture asserts nothing about
+    // the gate: it would be asserting that a clean file throws.
+    assert.ok(renderPreview(state).includes('Nora Lund'), 'the fixture no longer renders the spelling it is about');
+
+    assert.throws(
+      () => writePreview(state, outPath),
+      /known-entity occurrence/,
+      'the preview was rendered with a known entity in it and written anyway',
+    );
+
+    // On the filesystem, not on the return value. A refusal that leaves the
+    // file behind is not a refusal: the preview is a file somebody opens, and
+    // cli-ux 10 is that a refused run writes nothing.
+    assert.equal(fs.existsSync(outPath), false, 'the refused preview is on disk');
+    assert.equal(fs.existsSync(`${outPath}.part`), false, 'the refused preview is on disk under its part name');
+    assert.deepEqual(fs.readdirSync(root), [], `the refused run left something behind: ${fs.readdirSync(root).join(', ')}`);
+    fs.rmSync(root, { recursive: true, force: true });
+  }],
+
+  ['F256', 'a clean preview still writes, and its checks block carries no raw path', () => {
+    // Both halves in one run, because they are the same run: a gate that
+    // refuses everything satisfies "nothing leaks" and delivers nothing, and
+    // the leak this half measures was found BY the gate on its first live run.
+    //
+    // The checks block prints `tier1.source`, which is the `--entities`
+    // argument the operator typed. Measured 2026-08-28 against the live corpus
+    // (deident-runs/2026-08-27, 41 sessions, 2,612 entities): the preview
+    // carried that path in clear, three rows under `known-entity residue 0`,
+    // in a file whose own header says it pairs no pseudonym to a spelling. An
+    // entity list kept in a directory named after its owner is the ordinary
+    // case, not a contrived one.
+    const root = tmpdir();
+    const out = path.join(root, 'out');
+    const saltDir = path.join(root, 'salt');
+    writeCorpus(root);
+    assert.equal(runCli(['scan', '--root', root, '--out', out, '--salt-dir', saltDir], CORPUS_USER_ENV).code, 0);
+    setTier(path.join(out, 'review.md'), 'alpha', 'redact');
+    primeSemanticPass(root, out, saltDir, CORPUS_USER_ENV);
+
+    // The list, under a directory named after the person in it.
+    const named = path.join(root, 'Nora Lund');
+    fs.mkdirSync(named, { recursive: true });
+    const entitiesPath = path.join(named, 'ents.json');
+    fs.copyFileSync(path.join(root, 'ents.json'), entitiesPath);
+
+    const r = runCli([
+      'export', '--preview', '--skip-secret-scan', '--root', root, '--out', out,
+      '--salt-dir', saltDir, '--entities', entitiesPath,
+    ], CORPUS_USER_ENV);
+    assert.equal(r.code, 0, `the gate blocked a clean preview: ${r.out}`);
+
+    const diffs = fs.readdirSync(out).filter((f) => f.endsWith('.diff'));
+    assert.equal(diffs.length, 1, `the preview was not written: ${fs.readdirSync(out).join(', ')}`);
+    const text = fs.readFileSync(path.join(out, diffs[0]), 'utf8');
+    assert.ok(text.length > 0, 'the preview is empty');
+
+    // The row is still there and still says which list satisfied the gate: the
+    // fix is a substitution, not a deletion, and a checks block that stopped
+    // naming its source would trade one disclosure defect for another.
+    assert.match(text, /semantic pass/, 'the checks block lost the row this is about');
+    assert.ok(
+      !text.includes('Nora Lund'),
+      `the entity list's path put a declared name in the preview:${NL}${text.slice(text.indexOf('== checks =='), text.indexOf('== checks ==') + 500)}`,
+    );
+    fs.rmSync(root, { recursive: true, force: true });
+  }],
+
+  ['F257', 'the preview diff is outside the sendable directory and the label says what it is', () => {
+    // Asserted by running a real --preview and listing what is on disk after,
+    // for the same reason F245 lists rather than reads the constants: the claim
+    // is about what a person opening the folder finds.
+    const root = tmpdir();
+    const out = path.join(root, 'out');
+    const saltDir = path.join(root, 'salt');
+    writeCorpus(root);
+    assert.equal(runCli(['scan', '--root', root, '--out', out, '--salt-dir', saltDir], CORPUS_USER_ENV).code, 0);
+    setTier(path.join(out, 'review.md'), 'alpha', 'redact');
+    primeSemanticPass(root, out, saltDir, CORPUS_USER_ENV);
+    const r = runCli([
+      'export', '--preview', '--skip-secret-scan', '--root', root, '--out', out,
+      '--salt-dir', saltDir, '--entities', path.join(root, 'ents.json'),
+    ], CORPUS_USER_ENV);
+    assert.equal(r.code, 0, r.out);
+
+    const diffs = fs.readdirSync(out).filter((f) => f.endsWith('.diff'));
+    assert.equal(diffs.length, 1, `expected one preview diff at the top level: ${fs.readdirSync(out).join(', ')}`);
+    // Nowhere under send/, at any depth. A preview run writes no archive, so
+    // today that directory does not exist at all; the walk is the assertion
+    // that survives a run which does write one.
+    const walk = (dir) => (fs.existsSync(dir)
+      ? fs.readdirSync(dir, { withFileTypes: true })
+        .flatMap((e) => (e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)]))
+      : []);
+    assert.deepEqual(
+      walk(sendDir(out)).filter((f) => f.endsWith('.diff')),
+      [],
+      'the preview diff is inside the directory a person sends',
+    );
+
+    const label = fs.readFileSync(manifestPath(out), 'utf8');
+    const row = label.split(NL).find((line) => line.includes(diffs[0]));
+    assert.ok(row !== undefined, `the label does not name the preview diff:${NL}${label}`);
+    assert.ok(
+      label.indexOf(row) > label.indexOf('DO NOT SEND'),
+      `the preview diff is named above the DO NOT SEND heading:${NL}${label}`,
+    );
+
+    // And the reason it gives is a claim about THIS file. It read "the original
+    // text beside the redacted text", which excerptAt stopped being true of
+    // when its windows moved to the substituted string, and which the preview's
+    // own header denies in its third paragraph. Two trust surfaces describing
+    // one file and disagreeing is the defect the label was added to end, and a
+    // reason nobody can check against the file is how the label stops being
+    // read at all.
+    const text = fs.readFileSync(path.join(out, diffs[0]), 'utf8');
+    assert.ok(
+      text.includes('without pairing a pseudonym to the spelling it replaced'),
+      'the preview stopped denying that it is a map, so the label may claim it is one',
+    );
+    assert.ok(
+      !/original text/.test(row),
+      `the label says the preview holds the original text and the preview says it does not:${NL}${row}`,
+    );
     fs.rmSync(root, { recursive: true, force: true });
   }],
 

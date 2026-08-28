@@ -115,7 +115,7 @@ nothing expensive ever reads a session that was never going to be exported.
 |---|---|---|
 | `scan` | one pass, no reader | `review.md`: a census and a proposed tier per workspace |
 | `triage` | 23 KB, the head of each session only | `deident-triage.txt`: one first prompt per still-kept session |
-| `export --preview` | about 3.5 MB, roughly 900k tokens | `deident-candidates.txt` and a before/after `.diff` |
+| `export --preview` | about 3.5 MB, roughly 900k tokens | `deident-candidates.txt` and a `.diff`, both outside `send/` |
 | `export --entities` | the same again | `send/`, holding the zip and nothing else, plus `export-map.txt` and `WHAT-TO-SEND.txt` |
 
 Measured 2026-08-24 on a 205-session corpus. Triage is optional and a verdict may
@@ -148,7 +148,7 @@ on. **Send the contents of `send/` and nothing else.**
   deident-triage.txt              each session's first prompt, raw
   deident-candidates.txt          prose the semantic pass has not seen yet
   export-map.txt                  real session ids against archive entries
-  deident-preview-<date>.diff     the original text beside the redacted text
+  deident-preview-<date>.diff     the spellings deident refused to substitute, raw
 ```
 
 `send/` is an allowlist rather than a rule to remember: a new artifact is written
@@ -189,7 +189,7 @@ edits have added > 0 with net == 0 (BRIEF §4.2).
 
 ## Development
 
-`node deident.js --selftest` runs 250 fixtures on plain `node:assert`, no framework,
+`node deident.js --selftest` runs 253 fixtures on plain `node:assert`, no framework,
 in `test/selftest.mjs`; each catches a specific bug, named in the fixture. Section
 numbers in the source refer to `BRIEF.md` and `PLAN.md`. Never commit a session log,
 an export, a preview diff or the salt; `.gitignore` covers all of them.
