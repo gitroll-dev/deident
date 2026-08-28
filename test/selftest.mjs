@@ -183,6 +183,26 @@ const HARNESSES = [
       notFrom: { type: 'response_item', cwd: HARNESS_MOVED },
     },
   },
+  {
+    // Measured: 19 files, all true JSONL, {role, message} and nothing else at
+    // the top level; message carries `content` and nothing else.
+    agent: 'cursor',
+    dir: ['cursor'],
+    file: 'c1.jsonl',
+    dirName: '.',
+    records: 2,
+    write: () =>
+      [
+        JSON.stringify({ role: 'user', message: { content: [{ type: 'text', text: 'hello from cursor' }] } }),
+        JSON.stringify({ role: 'assistant', message: { content: [{ type: 'tool_use', name: 'shell', input: { working_directory: HARNESS_CWD } }] } }),
+      ].join(NL) + NL,
+    // Measured: no cwd anywhere. Every key of every record of all 19 files was
+    // walked; the only path-shaped keys are tool ARGUMENTS (working_directory
+    // on 20 tool_use inputs, path, paths, relative_path, target_directory).
+    // The row above carries one of those on purpose: if a reader ever starts
+    // reading tool arguments as the session's directory, F242 says so.
+    cwdSource: null,
+  },
 ];
 
 /** Write every harness's fixture session under one root. */
