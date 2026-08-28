@@ -1,6 +1,6 @@
 ---
 name: deident
-description: De-identify the user's own Claude Code session logs and pack them into an archive they can hand to someone else. Reads Claude Code's own log layout only; Codex and Cursor logs are not read yet. Use when the user asks to export, share, hand over, submit, donate, anonymise or de-identify their session logs, transcripts, conversation history or coding history, when a colleague has asked them for their logs for a benchmark or an evaluation, or when they name deident. Match on what is being asked for rather than on the wording: the request arrives in whatever language the person speaks, and a translation of any phrase above is the same request. Drives the whole flow: survey, decide what leaves, redact, export, verify. Not for exporting someone else's logs and not for ordinary file archiving.
+description: De-identify the user's own Claude Code session logs and pack them into an archive they can hand to someone else. Reads Claude Code's own log layout by default, and Codex, Cursor, opencode or Gemini CLI logs when told which with --agent and pointed at them with --root, since it has no default location for those four and will not guess one. Cursor and Gemini CLI record no working directory, so their logs can be read and listed but not exported. Use when the user asks to export, share, hand over, submit, donate, anonymise or de-identify their session logs, transcripts, conversation history or coding history, when a colleague has asked them for their logs for a benchmark or an evaluation, or when they name deident. Match on what is being asked for rather than on the wording: the request arrives in whatever language the person speaks, and a translation of any phrase above is the same request. Drives the whole flow: survey, decide what leaves, redact, export, verify. Not for exporting someone else's logs and not for ordinary file archiving.
 ---
 
 # deident
@@ -513,7 +513,7 @@ ordinary word for meeting"), not the rows.
   are still in the archive, joined to letters or digits (`yourname-prod`,
   `kv-yourname01234`). The substituter refused these on purpose: the word
   boundary rule cannot tell them from a name sitting inside an ordinary word,
-  and BRIEF Â§4.5 requires that non-match. **Not a bug and not a failed check.**
+  and BRIEF §4.5 requires that non-match. **Not a bug and not a failed check.**
   It is a decision to hand back. Each row carries a count and an excerpt. Say so
   plainly: renaming the resource before exporting is one fix, declaring the
   glued spelling itself in the entity list is another, and accepting it is a

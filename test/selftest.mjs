@@ -234,6 +234,34 @@ const HARNESSES = [
       notFrom: null,
     },
   },
+  {
+    // Measured: 58 files, 56 of them one JSON document. (The other two are
+    // Claude Code JSONL sitting in the same directory, which is why the reader
+    // checks the shape rather than assuming the directory is homogeneous.)
+    // `content` is a STRING 5816 times, an ARRAY 573 times and absent twice,
+    // so the row below carries both and nothing may assume either.
+    agent: 'gemini-cli',
+    dir: ['gemini'],
+    file: 'g1.jsonl',
+    dirName: '.',
+    records: 3,
+    write: () =>
+      JSON.stringify({
+        sessionId: 'g1',
+        projectHash: 'a'.repeat(64),
+        startTime: '2026-03-13T18:17:58.812Z',
+        lastUpdated: '2026-03-13T18:17:59.926Z',
+        kind: 'main',
+        messages: [
+          { id: 'm1', timestamp: '2026-03-13T18:17:58.812Z', type: 'user', content: [{ text: 'hello from gemini' }] },
+          { id: 'm2', timestamp: '2026-03-13T18:17:59.926Z', type: 'gemini', content: 'ok', tokens: { input: 3 } },
+        ],
+      }, null, 2),
+    // Measured: no cwd anywhere. `projectHash` is the only project-identifying
+    // field, in 55 of 56 documents, and it identifies the project WITHOUT
+    // naming it, so nothing can be derived from it.
+    cwdSource: null,
+  },
 ];
 
 /** Write every harness's fixture session under one root. */

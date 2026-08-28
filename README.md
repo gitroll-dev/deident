@@ -6,12 +6,12 @@ only, **no npm dependencies and no network calls**: it reads local files, writes
 local files, and nothing about your logs leaves the machine unless you send it.
 Slice 1, depth-0 Claude Code sessions by default, MIT licensed.
 
-**Which harness.** `--agent` selects the reader: `claude-code`, `codex`, `cursor`, `opencode`.
+**Which harness.** `--agent` selects the reader: `claude-code`, `codex`, `cursor`, `opencode`, `gemini-cli`.
 `claude-code` is the default and the only one with a default location, because
 only its layout was read on a real installation. Every other reader takes
 `--root` and nothing else, so deident never names a directory it guessed.
-`cursor` record no working directory anywhere in
-their logs, and deident admits material one directory at a time, so that one can be read
+`cursor` and `gemini-cli` record no working directory anywhere in
+their logs, and deident admits material one directory at a time, so those can be read
 and listed but not exported.
 Nothing is translated between harnesses: every record leaves in its own
 harness's shape with the identities replaced.

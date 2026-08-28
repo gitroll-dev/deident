@@ -207,11 +207,11 @@ export function renderUsage() {
 Flags
   --root <path>            override the resolved session-storage root
   --agent <name>           which harness wrote these logs: claude-code (the
-                           default), codex, cursor, opencode.
+                           default), codex, cursor, opencode, gemini-cli.
                            Every reader but claude-code also needs --root:
                            deident has no default location for them and will
                            not guess one.
-                           cursor record no working
+                           cursor and gemini-cli record no working
                            directory, so they can be read but not exported
   --out <path>             output directory (default: current directory)
   --salt-dir <path>        override ~/.deident-private
