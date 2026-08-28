@@ -7,8 +7,18 @@
 # and a fixture that hardcoded the author's own account name so "the stable
 # owner id must not leave" passed on his machine and on no other.
 #
-# Both operating systems, and the two Node lines the runtime gate names, because
-# a floor nobody tests is a floor nobody knows is right.
+# macOS is here for the third combination neither of the others can produce: a
+# case-INSENSITIVE filesystem reached through POSIX paths. Windows folds case
+# but spells paths with a drive letter and a backslash; Linux spells them the
+# POSIX way and does not fold. Only on macOS does the case-folding branch run
+# against paths that look like Linux's, and only there can the probe disagree
+# with process.platform at all, because a case-sensitive APFS volume is a
+# supported way to install the OS. It is also the only runner where os.tmpdir()
+# is a symlink, /var into /private/var, and the only one where a directory name
+# read back off the volume can arrive decomposed.
+#
+# All three operating systems, and the two Node lines the runtime gate names,
+# because a floor nobody tests is a floor nobody knows is right.
 
 name: selftest
 
@@ -23,7 +33,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
         node: ['20.15', '22']
     runs-on: ${{ matrix.os }}
     steps:
