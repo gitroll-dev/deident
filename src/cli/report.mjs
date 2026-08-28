@@ -203,6 +203,7 @@ export function renderUsage() {
   ${INVOCATION} triage    offer each still-kept session's first prompt, and apply
                      the verdicts. A verdict can only ever drop a session.
   ${INVOCATION} export    run every check, then produce the zip.
+  ${INVOCATION} verify    read a finished zip and say what is STILL in it. Reads only.
 
   Bare "${INVOCATION}" never exports.
 
