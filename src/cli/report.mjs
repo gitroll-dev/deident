@@ -207,7 +207,7 @@ export function renderUsage() {
 Flags
   --root <path>            override the resolved session-storage root
   --agent <name>           which harness wrote these logs: claude-code (the
-                           default), codex, cursor.
+                           default), codex, cursor, opencode.
                            Every reader but claude-code also needs --root:
                            deident has no default location for them and will
                            not guess one.

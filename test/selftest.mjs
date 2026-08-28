@@ -203,6 +203,37 @@ const HARNESSES = [
     // reading tool arguments as the session's directory, F242 says so.
     cwdSource: null,
   },
+  {
+    // Measured: 60 files, none of them JSONL. One JSON document, {info,
+    // messages}, two-space indented; info.directory in 60/60; role at
+    // message.info.role; the per-message info.path.cwd equalled info.directory
+    // 933/933 and differed 0 times.
+    agent: 'opencode',
+    dir: ['opencode'],
+    file: 'ses_01.jsonl',
+    dirName: '.',
+    // A document yields one record for the session's own envelope and one per
+    // message, so two messages is three records.
+    records: 3,
+    write: () =>
+      JSON.stringify({
+        info: { id: 'ses_01', slug: 'eager-wolf', directory: HARNESS_CWD, version: '1.2.20', title: 'review changes' },
+        messages: [
+          { info: { role: 'user', id: 'msg_1', sessionID: 'ses_01' }, parts: [{ type: 'text', text: 'hello from opencode' }] },
+          { info: { role: 'assistant', id: 'msg_2', sessionID: 'ses_01', path: { cwd: HARNESS_CWD, root: HARNESS_CWD } }, parts: [{ type: 'step-start' }] },
+        ],
+      }, null, 2),
+    cwdSource: 'stated',
+    cwdCase: {
+      records: [
+        { index: 1, value: { info: { id: 'ses_1', directory: HARNESS_CWD } } },
+        { index: 2, value: { info: { role: 'user' }, parts: [] } },
+        { index: 3, value: { info: { role: 'assistant' }, parts: [] } },
+      ],
+      expect: [HARNESS_CWD, HARNESS_CWD, HARNESS_CWD],
+      notFrom: null,
+    },
+  },
 ];
 
 /** Write every harness's fixture session under one root. */
@@ -10297,6 +10328,55 @@ const FIXTURES = [
     // Reading is still possible, and the refusal says so, so `types` works.
     const types = runCli(['types', '--agent', first.agent, '--root', sessions]);
     assert.notEqual(types.code, 1, `reading a cwd-less harness must still work: ${types.out}`);
+    fs.rmSync(root, { recursive: true, force: true });
+  }],
+
+  ['F241', 'a one-document harness yields the record shape a line harness yields', () => {
+    // The pipeline consumes records: {index, line, value}, index 1-based and
+    // stable. Two of the five harnesses write one JSON document per file, and
+    // the rule is that the READER produces records rather than the pipeline
+    // learning about documents. So the two shapes are compared field by field
+    // rather than trusted to match.
+    const root = tmpdir();
+    writeHarnessRoots(root);
+
+    // A harness whose file is lines, and one whose file is a document.
+    const lineHarness = HARNESSES.find((h) => h.agent === 'cursor');
+    const docHarness = HARNESSES.find((h) => h.agent === 'opencode');
+    const open = (h) => ({
+      what: h.agent,
+      agent: selectAgent(h.agent),
+      file: path.join(root, ...h.dir, h.file),
+    });
+
+    for (const h of [lineHarness, docHarness]) {
+      const { what, agent, file } = open(h);
+      const session = agent.readSession(file);
+      assert.deepEqual(
+        Object.keys(session).sort(),
+        ['badLines', 'bytes', 'lineCount', 'path', 'records', 'roundTripFailures'],
+        `${what}: the session object has different fields`,
+      );
+      for (const rec of session.records) {
+        assert.deepEqual(Object.keys(rec).sort(), ['index', 'line', 'value'], `${what}: a record has different fields`);
+        assert.equal(typeof rec.index, 'number');
+        // The line is the record's own JSON, which is what serializeSessions
+        // writes out per line for every harness.
+        assert.equal(rec.line, JSON.stringify(rec.value), `${what}: line and value disagree`);
+      }
+      assert.equal(session.records[0].index, 1, `${what}: records are not 1-based`);
+      // keepRaw:false drops the raw text for both, because the export pass
+      // holds every record and the raw text is a second copy of the corpus.
+      const lean = agent.readSession(file, { keepRaw: false });
+      assert.deepEqual(Object.keys(lean.records[0]).sort(), ['index', 'value'], `${what}: keepRaw:false kept the raw line`);
+    }
+
+    // And the document's records are the harness's own shape, not a shape
+    // invented to look like the other harness: record 1 is opencode's own
+    // session object minus its messages, record 2 is a message unchanged.
+    const doc = open(docHarness).agent.readSession(open(docHarness).file);
+    assert.deepEqual(Object.keys(doc.records[0].value), ['info']);
+    assert.deepEqual(Object.keys(doc.records[1].value).sort(), ['info', 'parts']);
     fs.rmSync(root, { recursive: true, force: true });
   }],
 
