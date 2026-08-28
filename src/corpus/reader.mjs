@@ -166,17 +166,34 @@ export function nestingError(filePath, lineNo, err) {
  * The I1 refusal. Separated from the reader so the reader stays a pure
  * boundary and the wording stays with the other refusals.
  */
-export function roundTripRefusal(failures) {
+export function roundTripRefusal(failures, agent = null) {
   const first = failures.slice(0, 5);
+  // The agent is named because the sentence used to say "Claude Code's log
+  // format has changed" whatever had been read, and on a Codex run that is
+  // false twice over: it is not Claude Code, and nothing has changed. Codex
+  // writes a space after every `:` and `,` and writes a whole float as `5.0`,
+  // so JSON.stringify reproduces neither, and 15,714 of 15,714 lines measured
+  // fail this check on a corpus that is in perfect health. Naming the harness
+  // is what makes that reading available to whoever hits it.
+  const label = agent === null ? "Claude Code's" : `${agent.label}'s`;
   return new RefusalError(
     `${failures.length} input${failures.length === 1 ? '' : 's'} do not round-trip byte-identically`,
     {
       why: [
-        "Claude Code's log format has changed in a way deident does not round-trip,",
+        `${label} log format is one deident does not round-trip byte for byte,`,
         'or a file contains bytes that are not valid UTF-8. Substituting inside a',
         'format we cannot re-serialize byte-identically risks corrupting the record',
         'or silently dropping a field. Do not export; report this.',
         '',
+        ...(agent === null || agent.canonicalJson
+          ? []
+          : [
+              `deident has never claimed byte-identity for ${agent.label}, and this`,
+              'refusal is the shipped invariant standing, not a fault in your logs.',
+              'Whether to hold a non-canonical writer to a whitespace-insensitive',
+              'form of the same check is a decision nobody has made yet.',
+              '',
+            ]),
         ...first.map((f) =>
           f.line === null || f.line === undefined
             ? `  ${f.file}  ${f.why ?? 'does not round-trip'}`

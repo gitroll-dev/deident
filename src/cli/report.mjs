@@ -206,6 +206,13 @@ export function renderUsage() {
 
 Flags
   --root <path>            override the resolved session-storage root
+  --agent <name>           which harness wrote these logs: claude-code (the
+                           default), codex, cursor, opencode, gemini-cli.
+                           Every reader but claude-code also needs --root:
+                           deident has no default location for them and will
+                           not guess one.
+                           cursor and gemini-cli record no working
+                           directory, so they can be read but not exported
   --out <path>             output directory (default: current directory)
   --salt-dir <path>        override ~/.deident-private
   --html                   review: write one self-contained HTML file
@@ -282,9 +289,12 @@ export function renderVersion() {
 
 export function renderScan(census) {
   if (machine !== null) { machineAdd(census); return; }
-  const { fileCount, bytes, dateRange, workspaceCount, emptyDirs, tiers, reviewPath, unreadable } = census;
+  const { agent, fileCount, bytes, dateRange, workspaceCount, emptyDirs, tiers, reviewPath, unreadable } = census;
   say('');
-  say(`  Claude Code sessions   ${n(fileCount)} files · ${humanBytes(bytes)}${dateRange ? ` · ${dateRange}` : ''}`);
+  // The harness is named, not assumed. The line read "Claude Code sessions"
+  // unconditionally, so a codex run reported three codex files under Claude
+  // Code's name, which is the one fact on the line nobody would think to check.
+  say(`  ${(agent ?? 'Claude Code')} sessions`.padEnd(25) + `${n(fileCount)} files · ${humanBytes(bytes)}${dateRange ? ` · ${dateRange}` : ''}`);
   say(`  Workspaces             ${n(workspaceCount)}   (the directories the sessions ran in, not the storage slugs)`);
   if (emptyDirs > 0) {
     // A workspace with no sessions cannot contribute anything to an export, so

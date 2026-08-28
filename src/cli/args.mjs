@@ -5,12 +5,17 @@ import { parseArgs } from 'node:util';
 import { UsageError } from './errors.mjs';
 import { DEFAULT_TRIAGE_CHARS, MAX_TRIAGE_CHARS } from '../policy/triage.mjs';
 import { CANDIDATE_BATCH_CHARS } from '../retain/constants.mjs';
+import { AGENT_IDS } from '../corpus/agents.mjs';
 
 export const COMMANDS = Object.freeze(['scan', 'review', 'triage', 'export', 'types']);
 
 // flag -> {type, multiple?, commands}. `commands: null` means every command.
 const FLAGS = Object.freeze({
   root: { type: 'string', commands: null },
+  // Which harness wrote the logs. Absent means Claude Code, and every reader
+  // but Claude Code's also needs --root: deident has no default location for
+  // them and does not guess one (src/corpus/agents.mjs states why).
+  agent: { type: 'string', commands: null },
   out: { type: 'string', commands: ['scan', 'review', 'triage', 'export'] },
   'salt-dir': { type: 'string', commands: null },
   html: { type: 'boolean', commands: ['review'] },
@@ -117,7 +122,11 @@ export function parseCliArgs(argv) {
     );
   }
 
-  for (const name of ['root', 'out', 'salt-dir', 'entities', 'entity', 'session', 'verdicts']) {
+  if (values.agent !== undefined && !AGENT_IDS.includes(values.agent)) {
+    throw new UsageError(`--agent must be one of ${AGENT_IDS.join(', ')}, got "${values.agent}"`);
+  }
+
+  for (const name of ['root', 'agent', 'out', 'salt-dir', 'entities', 'entity', 'session', 'verdicts']) {
     if (values[name] !== undefined && values[name].trim() === '') {
       throw new UsageError(`--${name} needs a value`);
     }
@@ -178,6 +187,7 @@ export function parseCliArgs(argv) {
     command,
     flags: {
       root: values.root ?? null,
+      agent: values.agent ?? null,
       out: values.out ?? null,
       saltDir: values['salt-dir'] ?? null,
       html: values.html === true,
