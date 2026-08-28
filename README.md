@@ -125,6 +125,22 @@ any failure means nothing is written; `review`, the fifth entry point, renders
 characters cut 1,336,271 characters there, 10.3% of the prose, and **that number is
 printed** ([the arithmetic](docs/design-rationale.md#what-the-stages-cost)).
 
+**Three of the checks read the file, not the strings behind it.** Every other check
+runs over a copy assembled in memory beside the entries, so the deflate path, the
+entry naming and the rename from `.part` are outside all of them. After the zip is
+written deident re-opens it and runs three passes over what came back: the
+known-entity residue scan and a credential scan, both of which delete the archive on
+a finding, and an **output deny sweep** that re-runs every deny rule, the
+injected-span patterns and your own `denied.json` over the shipped bytes, entry names
+included. The sweep reports and does not refuse. On the archive shipped 2026-08-27 it
+finds 7 hits, every one a memory FILENAME sitting in prose that never opened the
+file, which is the deny-list limit
+[above](#what-deident-does-not-protect-against) rather than a leak: that list gates
+tool parameters and attachments, and refusing on prose would refuse every export this
+machine makes. A hit on any other list is one no other gate caught, and the rows name
+which list and which entry. deident's own `[N bytes withheld by deident: …]` markers
+are excluded from the count.
+
 At stage 3 you, or an agent, answer `deident-candidates.txt` with
 `deident-entities.json`, a list of `{kind, spellings, confidence}` whose format lives
 in that file's own header so it cannot fall behind the code. The pass is remembered
@@ -189,7 +205,7 @@ edits have added > 0 with net == 0 (BRIEF §4.2).
 
 ## Development
 
-`node deident.js --selftest` runs 254 fixtures on plain `node:assert`, no framework,
+`node deident.js --selftest` runs 258 fixtures on plain `node:assert`, no framework,
 in `test/selftest.mjs`; each catches a specific bug, named in the fixture. Section
 numbers in the source refer to `BRIEF.md` and `PLAN.md`. Never commit a session log,
 an export, a preview diff or the salt; `.gitignore` covers all of them.

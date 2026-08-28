@@ -106,7 +106,15 @@ import {
 } from '../src/policy/reviewfile.mjs';
 import { readEntities, writeCandidates } from '../src/entities/tier1.mjs';
 import { estimateTokens, roundEstimate, tokenCost } from '../src/cli/tokens.mjs';
-import { CANDIDATE_CHUNK_CHARS, DENIED_CONTENT, DENIED_TEXT } from '../src/retain/constants.mjs';
+import {
+  CANDIDATE_CHUNK_CHARS,
+  DENIED_CONTENT,
+  DENIED_MARKER,
+  DENIED_PATH_MARKER,
+  DENIED_PATH_REASON,
+  DENIED_TEXT,
+} from '../src/retain/constants.mjs';
+import { sweepDenied } from '../src/verify/sweep.mjs';
 import { DICTIONARY_FILENAME, mergeEntities } from '../src/policy/dictionary.mjs';
 import { parseCliArgs } from '../src/cli/args.mjs';
 import { checkRuntime, REQUIRED_NODE } from '../src/cli/runtime.mjs';
@@ -11546,6 +11554,216 @@ const FIXTURES = [
       setCaseFolding(was);
       fs.rmSync(root, { recursive: true, force: true });
     }
+  }],
+
+  // F259 to F262. The output-side deny sweep.
+  //
+  // One gate in this tool re-reads the finished archive: `checkResidue`, and
+  // that is why a second code path that skipped substitution could never
+  // survive. Denial, injection-stripping and the placeholder had no such gate,
+  // so each grew one list per caller and the tool was fixed four times for it:
+  // a `document` block reviewed on one path and unknown on another, a
+  // `queued_command` prompt copied verbatim past the decision list,
+  // `edited_text_file` and `file` two lines below it, and `retainPrompt` never
+  // calling stripInjected. Six of the confirmed findings are visible in the
+  // finished archive without anybody enumerating a call site.
+  ['F259', 'a deny-listed value in a kept record is found in the archive by the sweep', () => {
+    // `last-prompt` is the prompt carried OUTSIDE `message`, which is the arm
+    // that was missing stripInjected entirely. It is gated by
+    // `deniedTextReason`, which reads DENIED_TEXT and the operator's own
+    // patterns; DENIED_CONTENT is a filename test that gates a tool parameter
+    // and an attachment and never sees this route. So a memory filename
+    // arriving here reaches the archive with no gate having looked at it,
+    // which is exactly the shape the sweep exists to make visible.
+    const root = tmpdir();
+    const out = path.join(root, 'out');
+    const saltDir = path.join(root, 'salt');
+    const corpus = writeCorpus(root);
+    const PLANTED = `carry MEMORY.md forward and reconcile ${'it'} against the notes`;
+    fs.appendFileSync(
+      path.join(root, 'projects', 'ws', '11111111-1111-4111-8111-111111111111.jsonl'),
+      JSON.stringify({
+        type: 'last-prompt',
+        sessionId: '11111111-1111-4111-8111-111111111111',
+        timestamp: '2026-08-21T09:30:00.000Z',
+        cwd: corpus.cwd,
+        lastPrompt: PLANTED,
+      }) + NL,
+      'utf8',
+    );
+
+    assert.equal(runCli(['scan', '--root', root, '--out', out, '--salt-dir', saltDir]).code, 0);
+    setTier(path.join(out, 'review.md'), 'alpha', 'redact');
+    primeSemanticPass(root, out, saltDir);
+    const done = runCli([
+      'export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir,
+      '--entities', path.join(root, 'ents.json'), '--json',
+    ]);
+    assert.equal(done.code, 0, done.out);
+
+    // First that it really did ship. A fixture that only asserts the sweep is
+    // clean would pass just as well if the record had been dropped, and would
+    // then be testing nothing.
+    const entries = readZipFile(oneArchive(out));
+    const body = entries.map((e) => e.data).join(NL);
+    assert.ok(body.includes('MEMORY.md'), 'the planted memory filename never reached the archive');
+
+    // Then that the sweep names it, from the bytes rather than from the route.
+    const swept = sweepDenied(entries);
+    assert.ok(swept.total > 0, 'the sweep found nothing in an archive that demonstrably carries it');
+    assert.ok(
+      swept.byList.some((r) => r.list === 'DENIED_CONTENT' && r.count > 0),
+      `no DENIED_CONTENT hit: ${JSON.stringify(swept.byList)}`,
+    );
+    assert.equal(swept.ok, false, 'a sweep with hits reported itself clean');
+
+    // And that the export said so rather than swallowing it. It is a report,
+    // not a gate: the run exits 0 with the hits printed.
+    const doc = JSON.parse(done.out);
+    assert.ok(doc.denySweep, 'the machine document carries no denySweep');
+    assert.equal(doc.denySweep.refuses, false, 'the sweep advertises itself as a refusal');
+    assert.ok(
+      doc.denySweep.total > 0,
+      'the export reported no deny-rule hit over an archive that demonstrably carries one',
+    );
+    assert.equal(doc.denySweep.total, swept.total, 'the reported total is not the archive\'s');
+    fs.rmSync(root, { recursive: true, force: true });
+  }],
+
+  ['F260', 'the markers deident mints do not trip its own sweep', () => {
+    // Two claims, and only the second one is about the sweep.
+    //
+    // First: today's markers trip nothing, and that is a property of the
+    // REASON VOCABULARY rather than of this code. Every reason is a fixed
+    // label now, and no label carries a path separator or a filename, so no
+    // list can match one. Asserted over the whole vocabulary rather than a
+    // sample, so a new label that is not a fixed word fails here.
+    const reasons = [...new Set([
+      ...DENIED_CONTENT.map((d) => d.reason),
+      ...DENIED_TEXT.map((d) => d.reason),
+      DENIED_PATH_REASON,
+    ])];
+    for (const why of reasons) {
+      assert.equal(deniedReason(DENIED_MARKER(412, why)), null, `the reason label "${why}" is itself deny-listed`);
+    }
+    assert.equal(deniedReason(DENIED_PATH_MARKER), null);
+
+    // Second, and this is the one the sweep is responsible for: the exclusion
+    // holds whatever the reason says. Until 2026-08-26 the reason WAS the
+    // matched substring, so a marker re-emitted the withheld value beside the
+    // count of the bytes just withheld: 243 markers in one archive shipped
+    // that day and 110 in the other did exactly that. Swept over the archive
+    // shipped 2026-08-26, leaving the markers in counts 89 hits against 11
+    // with them taken out. The vocabulary was fixed, and this is what stops
+    // the count going back to depending on it.
+    const legacy = DENIED_MARKER(412, ['C:', 'w', 'ops-handover', 'private', ''].join(BS));
+    assert.equal(
+      deniedReason(legacy),
+      DENIED_PATH_REASON,
+      'the sample marker no longer trips a list, so this fixture excludes nothing',
+    );
+    const swept = sweepDenied([
+      { name: 'sessions/WORKSPACE_1/aaa.jsonl', data: [legacy, DENIED_PATH_MARKER].join(NL) },
+      { name: 'sessions/WORKSPACE_1/bbb.jsonl', data: reasons.map((why, i) => DENIED_MARKER(100 + i, why)).join(NL) },
+    ]);
+    assert.equal(swept.total, 0, `deident's own markers tripped the sweep: ${JSON.stringify(swept.byList)}`);
+    assert.equal(swept.ok, true);
+  }],
+
+  ['F261', 'a CamelCase identifier is not a path, and a real deny-listed path still is', () => {
+    // Measured on the archive shipped 2026-08-27: DENIED_PATH_HEAD_RE allows
+    // up to 60 segment characters before the token, so `Identity` inside
+    // `UpdateIdentity` matched and a PowerShell property name in a tool_use
+    // `command` parameter read as a deny-listed directory. The separator that
+    // completed the match was the backslash of a JSON `\"` escape.
+    const clean = [
+      'rev $($_.UpdateIdentity.RevisionNumber)' + BS,
+      'src/components/HeroIdentity.tsx',
+      'https://cloudidentity.googleapis.com/v1/groups',
+      'https://www.surepayroll.com/pricing',
+      'const sessionIdentity = await getSessionIdentity()',
+      'a private repo is fine',
+      'the payroll question came up',
+    ];
+    for (const s of clean) {
+      assert.equal(deniedReason(s), null, `an ordinary identifier read as a deny-listed directory: ${s}`);
+      assert.equal(
+        sweepDenied([{ name: 'sessions/WORKSPACE_1/aaa.jsonl', data: s }]).total,
+        0,
+        `the sweep cried wolf on: ${s}`,
+      );
+    }
+
+    // Tightening a deny pattern is the dangerous direction, so the other half
+    // is asserted in the same fixture rather than trusted. The last of these
+    // is the one the naive fix broke: grep output pasted into a tool parameter
+    // arrives with the escape's own `n` sitting where a separator would be.
+    const dirty = [
+      ['C:/Users/x/.identity-private/profile.json', 1],
+      ['C:' + BS + 'w' + BS + 'ops-handover' + BS + 'private' + BS + 'VENDOR-BRIEF.md', 1],
+      ['private/cpa-search/COST-COMPARISON.md:17:| Quick', 1],
+      ['payroll/2026/ledger.md', 1],
+      ['=== QBO ===' + BS + 'nprivate/cpa-search/OUTREACH-DRAFTS.md:135:', 1],
+    ];
+    for (const [s] of dirty) {
+      assert.equal(deniedReason(s), DENIED_PATH_REASON, `a real deny-listed path stopped being denied: ${s}`);
+      assert.ok(
+        sweepDenied([{ name: 'sessions/WORKSPACE_1/aaa.jsonl', data: s }]).total > 0,
+        `the sweep missed a real deny-listed path: ${s}`,
+      );
+    }
+  }],
+
+  ['F262', 'the sweep reads the shipped entries, not the string assembled beside them', () => {
+    // Every other check in this tool runs over `serialized.allBytes`, a string
+    // built BESIDE the entries, so the deflate path, the entry naming, the
+    // central directory and the rename from .part are outside all of them. On
+    // the delivery run a reviewer was handed something that was not what
+    // shipped three separate times, and each time the gap was where the leak
+    // lived.
+    //
+    // The discriminator is the entry NAME. `serialized.allBytes` has none, so
+    // a sweep rewired to read it could not attribute a hit to one and could
+    // not find a value riding out inside one, which is why F38 exists.
+    assert.equal(
+      sweepDenied([{ name: 'sessions/WORKSPACE_1/ops-handover/private/x.jsonl', data: 'nothing here' }]).total,
+      1,
+      'a deny-listed path in an ENTRY NAME was not swept',
+    );
+
+    const root = tmpdir();
+    const out = path.join(root, 'out');
+    const saltDir = path.join(root, 'salt');
+    writeCorpus(root);
+    assert.equal(runCli(['scan', '--root', root, '--out', out, '--salt-dir', saltDir]).code, 0);
+    setTier(path.join(out, 'review.md'), 'alpha', 'redact');
+    primeSemanticPass(root, out, saltDir);
+    const done = runCli([
+      'export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir,
+      '--entities', path.join(root, 'ents.json'), '--json',
+    ]);
+    assert.equal(done.code, 0, done.out);
+    const doc = JSON.parse(done.out);
+    const entries = readZipFile(oneArchive(out));
+
+    // The count is the zip's, read back off disk after it was written.
+    assert.equal(
+      doc.denySweep.entries,
+      entries.length,
+      'the sweep counted something other than the entries in the finished zip',
+    );
+    // And it is the same number the on-disk residue gate read, which is the
+    // one other check in this tool whose subject is the file on disk.
+    const onDisk = (doc.checks ?? []).find((c) => c.label === 'archive on disk');
+    assert.ok(onDisk, 'the on-disk residue row is gone; this fixture compares against it');
+    assert.equal(doc.denySweep.entries, onDisk.entries, 'the two on-disk checks read different artifacts');
+
+    // Every hit names an entry that is really in the archive.
+    const names = new Set(entries.map((e) => e.name));
+    for (const h of doc.denySweep.hits) {
+      assert.ok(names.has(h.entry), `a hit names ${h.entry}, which is not an entry in the zip`);
+    }
+    fs.rmSync(root, { recursive: true, force: true });
   }],
 
 ];
