@@ -16,6 +16,16 @@ and listed but not exported.
 Nothing is translated between harnesses: every record leaves in its own
 harness's shape with the identities replaced.
 
+**Your half of it, before the promise.** deident infers your username, your paths,
+your git identity and your git remotes from the machine. It cannot infer that a
+string is your name, your birth date, your phone number or a document number,
+because nothing on the machine says so. Those go in
+`~/.deident-private/known-values.json` and nowhere else. Skip that file and your
+own details ship while every check reports green: that is not a hypothetical, it
+happened, and the count was 21 fields. **`deident verify <zip>` reads the finished
+archive and tells you what is still in it**, which is the question "did it work"
+actually asks, and the only one the export cannot answer about itself.
+
 **The promise.** Every byte in the archive is either a value from a vocabulary this
 tool defines in its own source, or a line of prose a person read on screen. The one
 exception is your tool call parameters: 12.2% and 16.3% of the archive on the two
@@ -75,6 +85,7 @@ node deident.js scan              # survey, then tier each workspace in review.m
 node deident.js triage            # optional, cheap: drop whole sessions on sight
 node deident.js export --preview  # writes deident-candidates.txt, the prose to read
 node deident.js export --entities deident-entities.json
+node deident.js verify <the zip>   # what is STILL in it. Read-only.
 ```
 
 **Your first export will refuse, and that is the design.** `scan` proposes `exclude`
@@ -157,7 +168,7 @@ edits have added > 0 with net == 0 (BRIEF §4.2).
 
 ## Development
 
-`node deident.js --selftest` runs 240 fixtures on plain `node:assert`, no framework,
+`node deident.js --selftest` runs 242 fixtures on plain `node:assert`, no framework,
 in `test/selftest.mjs`; each catches a specific bug, named in the fixture. Section
 numbers in the source refer to `BRIEF.md` and `PLAN.md`. Never commit a session log,
 an export, a preview diff or the salt; `.gitignore` covers all of them.

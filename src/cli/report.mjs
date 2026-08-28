@@ -166,6 +166,8 @@ const warn = (text = '') => {
   emit(process.stderr, text);
 };
 
+const EXAMPLES = 8;
+
 const n = (v) => (typeof v === 'number' ? v.toLocaleString('en-US') : String(v));
 
 function pad(s, width) {
@@ -974,6 +976,88 @@ export function renderSecretScan(result) {
     `    ${pad('secret scan', 23)} ${n(count)} finding${count === 1 ? '' : 's'} from ${
       SCANNER}, ${result.seconds.toFixed(1)}s${count === 0 ? '   ok' : '   FAILED'}`,
   );
+}
+
+/**
+ * What is still in a finished archive.
+ *
+ * The wording rule this file exists for applies hardest here. Every other block
+ * reports what deident REMOVED, and a person reading "3,313 spellings replaced"
+ * hears "nothing of mine is left", which is not what it says. This block reports
+ * PRESENCE, and where it can prove nothing is present it says so in those words
+ * rather than in a count.
+ *
+ * A declared value is never printed back. The operator has them; what they do
+ * not have is whether one is in this file, and echoing the value would put an
+ * identity into a terminal, a scrollback, and possibly a pasted issue.
+ */
+export function renderVerify(target, r, saltDir) {
+  if (machine !== null) {
+    machineAdd({
+      verify: {
+        archive: target,
+        entries: r.entries,
+        bytes: r.bytes,
+        declared: r.declared,
+        gluedAccountName: r.machineName.glued.length,
+        serviceIds: r.serviceIds,
+        shapes: r.shapes,
+      },
+      ok: !(r.declared.available && r.declared.hits.length > 0),
+    });
+    return;
+  }
+
+  say('');
+  say(`  ${target}`);
+  say(`    ${n(r.entries)} entries, ${humanBytes(r.bytes)} of text read back out of the zip`);
+  say('');
+
+  // 1. The operator's own values. The one check the pipeline cannot run on
+  // itself, and the one that found the 21-field leak.
+  if (!r.declared.available) {
+    warn(`  ! ${r.declared.why}, so this command cannot tell you whether YOUR OWN`);
+    warn('    name, birth date, phone or document numbers are in this file. It');
+    warn('    checked everything else and found what is below.');
+    warn(`    Declare them once in ${saltDir}\\known-values.json and run this again.`);
+  } else if (r.declared.hits.length === 0) {
+    say(`    your own declared values   none of the ${n(r.declared.total)} is present   ok`);
+  } else {
+    say(`    your own declared values   ${n(r.declared.hits.length)} of ${n(r.declared.total)} ARE STILL IN THIS FILE   FAILED`);
+    for (const h of r.declared.hits.slice(0, EXAMPLES)) {
+      say(`      ${String(n(h.count)).padStart(6)}x   a ${h.kind} you declared, ${h.chars} characters`);
+    }
+    say('    The value itself is not printed here. It is in your known-values.json.');
+  }
+
+  // 2. The account name, including the glued forms the boundary rule declines.
+  if (r.machineName.user !== null) {
+    if (r.machineName.glued.length === 0) {
+      say(`    your account name          no form of "${r.machineName.user}" is present   ok`);
+    } else {
+      say(`    your account name          ${n(r.machineName.glued.length)} form${r.machineName.glued.length === 1 ? '' : 's'} of "${r.machineName.user}" present   FAILED`);
+      for (const g of r.machineName.glued.slice(0, EXAMPLES)) say(`      ${g}`);
+    }
+  }
+
+  // 3. Service ids. A named limit rather than a defect, said as one.
+  if (r.serviceIds.length === 0) {
+    say('    service ids                none of the shapes it knows   ok');
+  } else {
+    say('    service ids                present, and this is a NAMED LIMIT, not a bug:');
+    for (const s2 of r.serviceIds) say(`      ${String(n(s2.count)).padStart(6)}x   ${s2.label}   ${s2.example}`);
+    say('    deident does not sweep these. Drop the session or edit them out.');
+  }
+
+  // 4. Shapes only a program emits. Not findings; a reason to look.
+  if (r.shapes.length > 0) {
+    say('    machine-output shapes      not findings, but where a name hides from a reader:');
+    for (const s2 of r.shapes) say(`      ${String(n(s2.count)).padStart(6)}x   ${s2.label}`);
+  }
+
+  say('');
+  say('    This says what is PRESENT. It does not say the file is safe: a name');
+  say('    nobody declared and no shape matches is invisible to every check here.');
 }
 
 export function renderNote(text) {

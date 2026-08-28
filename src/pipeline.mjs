@@ -14,7 +14,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 
 import * as report from './cli/report.mjs';
-import { RefusalError, UsageError, osErrorLine } from './cli/errors.mjs';
+import { RefusalError, UsageError, ReadError, osErrorLine } from './cli/errors.mjs';
 import { estimateTokens, tokenCost } from './cli/tokens.mjs';
 import { resolveCorpus, corpusDateRange } from './corpus/root.mjs';
 import { roundTripRefusal, nestingError } from './corpus/reader.mjs';
@@ -85,6 +85,7 @@ import {
   unverifiedRemainder,
 } from './verify/checks.mjs';
 import { checkDeclaredValues } from './verify/declared.mjs';
+import { verifyArchive } from './verify/archive.mjs';
 import { scanForSecrets } from './verify/secretscan.mjs';
 import { writeZip, readZipFile, safeUnlink } from './output/zip.mjs';
 import { writePreview } from './output/preview.mjs';
@@ -233,6 +234,44 @@ function checkOutDir(resolved) {
  * reviewed that the export still refuses, which is worse than not having the
  * command at all.
  */
+/**
+ * Read a finished archive and say what is still in it.
+ *
+ * Every other command answers "did the substitution I performed come out
+ * right", which is a question about the pipeline and is answerable only by the
+ * pipeline. Both real leaks in this tool's history were found the other way: by
+ * opening the shipped bytes and looking for something already held. A teammate
+ * did exactly that, saw his own details, and concluded the tool does nothing.
+ *
+ * So this exists to be run BY the person deciding whether to send the file, on
+ * the file they are about to send, and it reports presence rather than removal.
+ * "I removed 3,313 things" and "nothing of yours is left" are different claims
+ * and only the second one is what they are asking.
+ *
+ * Read-only, and it never prints a declared value back: the operator has those
+ * already, and echoing one puts an identity in a terminal, a scrollback and
+ * possibly a pasted issue.
+ */
+export async function runVerify(flags, env) {
+  const target = flags.archive;
+  if (typeof target !== 'string' || target.trim() === '') {
+    throw new UsageError('verify needs the archive to read: deident verify <zip>');
+  }
+  if (!fs.existsSync(target)) {
+    throw new ReadError(`no archive at ${target}`, {
+      why: ['verify reads a zip deident already wrote; it does not create one.'],
+      remedies: [{ label: 'Point at the archive', command: 'deident verify <path to the zip>' }],
+    });
+  }
+  const saltDir = flags.saltDir ?? defaultSaltDir(env);
+  const result = verifyArchive(target, { saltDir });
+  report.renderVerify(target, result, saltDir);
+  // Exit 1 when something the operator declared as their own is still in the
+  // file. Everything else is reported and left to them: a service id is a
+  // named limit, and a base64 run is usually an image nobody minds.
+  return result.declared.available && result.declared.hits.length > 0 ? 1 : 0;
+}
+
 export async function runTypes(flags, env) {
   const corpus = resolveCorpus(env, flags.root, flags.agent);
   const agent = corpus.agent;
