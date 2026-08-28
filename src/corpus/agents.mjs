@@ -24,11 +24,13 @@
 
 import { RefusalError } from '../cli/errors.mjs';
 import * as claudeCode from './agents/claude-code.mjs';
+import * as codex from './agents/codex.mjs';
 
 export const DEFAULT_AGENT = 'claude-code';
 
 const AGENTS = Object.freeze({
   [claudeCode.id]: claudeCode,
+  [codex.id]: codex,
 });
 
 export const AGENT_IDS = Object.freeze(Object.keys(AGENTS));

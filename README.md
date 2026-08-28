@@ -6,11 +6,12 @@ only, **no npm dependencies and no network calls**: it reads local files, writes
 local files, and nothing about your logs leaves the machine unless you send it.
 Slice 1, depth-0 Claude Code sessions by default, MIT licensed.
 
-**Which harness.** `--agent` selects the reader; `claude-code` is the default and
-the only one with a default location, because only its layout was read on a real
-installation. Every other reader takes `--root` and nothing else, so deident
-never names a directory it guessed. Nothing is translated between harnesses:
-every record leaves in its own harness's shape with the identities replaced.
+**Which harness.** `--agent` selects the reader: `claude-code`, `codex`.
+`claude-code` is the default and the only one with a default location, because
+only its layout was read on a real installation. Every other reader takes
+`--root` and nothing else, so deident never names a directory it guessed.
+Nothing is translated between harnesses: every record leaves in its own
+harness's shape with the identities replaced.
 
 **The promise.** Every byte in the archive is either a value from a vocabulary this
 tool defines in its own source, or a line of prose a person read on screen. The one
@@ -153,7 +154,7 @@ edits have added > 0 with net == 0 (BRIEF §4.2).
 
 ## Development
 
-`node deident.js --selftest` runs 237 fixtures on plain `node:assert`, no framework,
+`node deident.js --selftest` runs 239 fixtures on plain `node:assert`, no framework,
 in `test/selftest.mjs`; each catches a specific bug, named in the fixture. Section
 numbers in the source refer to `BRIEF.md` and `PLAN.md`. Never commit a session log,
 an export, a preview diff or the salt; `.gitignore` covers all of them.

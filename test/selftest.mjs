@@ -150,7 +150,40 @@ function tmpdir() {
 const HARNESS_CWD = ['C:', 'Users', 'devuser', 'projects', 'alpha'].join(BS);
 const HARNESS_MOVED = ['C:', 'Users', 'devuser', 'projects', 'beta'].join(BS);
 
-const HARNESSES = [];
+const HARNESSES = [
+  {
+    // Measured: 60 files, all true JSONL, every line {timestamp, type, payload};
+    // session_meta first in 60/60 and carrying a cwd in 60/60; turn_context
+    // carrying one in 159/159, agreeing with session_meta 159/159.
+    agent: 'codex',
+    dir: ['codex', '2026', '03', '30'],
+    file: 'rollout-01.jsonl',
+    // The nested tree is the point: the rollout file sits three directories
+    // below the root the operator names, so a depth-0 walk (Claude Code's rule,
+    // for a Claude Code reason) would report an empty corpus and explain nothing.
+    dirName: '2026/03/30',
+    records: 3,
+    write: () =>
+      [
+        JSON.stringify({ timestamp: '2026-03-30T05:38:34.431Z', type: 'session_meta', payload: { id: 'rollout-01', cwd: HARNESS_CWD, originator: 'codex-tui', source: 'cli', cli_version: '1.0.0' } }),
+        JSON.stringify({ timestamp: '2026-03-30T05:38:40.000Z', type: 'event_msg', payload: { type: 'user_message', message: 'hello from codex' } }),
+        JSON.stringify({ timestamp: '2026-03-30T05:38:41.000Z', type: 'turn_context', payload: { turn_id: 't1', cwd: HARNESS_CWD, model: 'gpt-5.4' } }),
+      ].join(NL) + NL,
+    cwdSource: 'stated',
+    cwdCase: {
+      records: [
+        { index: 1, value: { type: 'session_meta', payload: { cwd: HARNESS_CWD } } },
+        { index: 2, value: { type: 'event_msg', payload: { type: 'user_message' } } },
+        { index: 3, value: { type: 'turn_context', payload: { cwd: HARNESS_MOVED } } },
+        { index: 4, value: { type: 'response_item', payload: {} } },
+      ],
+      expect: [HARNESS_CWD, HARNESS_CWD, HARNESS_MOVED, HARNESS_MOVED],
+      // A `cwd` on the record itself is Claude Code's rule, not Codex's, and
+      // reading one would attribute a turn to a directory Codex never named.
+      notFrom: { type: 'response_item', cwd: HARNESS_MOVED },
+    },
+  },
+];
 
 /** Write every harness's fixture session under one root. */
 function writeHarnessRoots(root) {
@@ -10165,6 +10198,86 @@ const FIXTURES = [
     // identifiers, so both drop.
     assert.equal(s.contentBlocks.patch, 'drop', 'opencode patch carries no diff, only a hash and absolute paths');
     assert.equal(s.contentBlocks.file, 'drop', 'opencode file carries no body, only a path and a mention offset');
+  }],
+
+  ['F240', 'each harness reader finds its sessions under a root and yields their records', () => {
+    const root = tmpdir();
+    writeHarnessRoots(root);
+    assert.ok(HARNESSES.length > 0, 'no harness has a fixture row');
+
+    for (const h of HARNESSES) {
+      const corpus = resolveCorpus({}, path.join(root, h.dir[0]), h.agent);
+      assert.equal(corpus.agent.id, h.agent, `${h.agent}: --agent selected ${corpus.agent.id}`);
+      assert.equal(corpus.files.length, 1, `${h.agent}: found ${corpus.files.length} session files`);
+      assert.equal(corpus.files[0].dirName, h.dirName, `${h.agent}: the file was located at ${corpus.files[0].dirName}`);
+
+      const session = corpus.agent.readSession(corpus.files[0].path);
+      assert.equal(session.records.length, h.records, `${h.agent}: read ${session.records.length} records`);
+      assert.deepEqual(
+        session.records.map((r) => r.index),
+        Array.from({ length: h.records }, (_, i) => i + 1),
+        `${h.agent}: record indices are not 1..n`,
+      );
+      assert.equal(session.roundTripFailures.length, 0, `${h.agent}: a clean file failed the round trip`);
+      assert.equal(session.badLines.length, 0, `${h.agent}: a clean file produced bad lines`);
+    }
+    fs.rmSync(root, { recursive: true, force: true });
+  }],
+
+  ['F242', 'each cwd comes from where that harness states it, and a harness that states none refuses', () => {
+    // Claude Code first, because it is the one that must not have moved: per
+    // LINE, from `cwd` on the record and from the records that relocate it.
+    assert.deepEqual(
+      selectAgent('claude-code').resolveLineCwd([
+        { index: 1, value: { type: 'user', cwd: HARNESS_CWD } },
+        { index: 2, value: { type: 'last-prompt' } },
+        { index: 3, value: { type: 'relocated', relocatedCwd: HARNESS_MOVED } },
+      ]),
+      [HARNESS_CWD, HARNESS_CWD, HARNESS_MOVED],
+    );
+
+    for (const h of HARNESSES) {
+      const agent = selectAgent(h.agent);
+      if (h.cwdSource === null) {
+        // Stated as absent, and nothing derived to cover it. The cursor row's
+        // corpus carries a `working_directory` tool ARGUMENT precisely so that
+        // a reader which starts mining tool arguments fails here.
+        assert.equal(agent.cwdSource, null, `${h.agent} claims a cwd source it does not have`);
+        assert.deepEqual(agent.resolveLineCwd([{ index: 1, value: {} }, { index: 2, value: {} }]), [null, null]);
+        continue;
+      }
+      assert.equal(typeof agent.cwdSource, 'string', `${h.agent} does not say where its cwd comes from`);
+      assert.deepEqual(agent.resolveLineCwd(h.cwdCase.records), h.cwdCase.expect, `${h.agent}: the cwd came from the wrong place`);
+      if (h.cwdCase.notFrom !== null && typeof agent.cwdChangeFrom === 'function') {
+        assert.equal(agent.cwdChangeFrom(h.cwdCase.notFrom), null, `${h.agent} read a cwd off a field it does not state one on`);
+      }
+    }
+
+    const stateless = HARNESSES.filter((h) => h.cwdSource === null).map((h) => h.agent);
+    assert.deepEqual(noCwdAgents(), stateless, 'the harnesses with no cwd are not the ones the table says');
+    if (stateless.length === 0) return;
+
+    // And the run stops rather than admitting the whole corpus through the one
+    // `<no-cwd>` row a cwd-less harness would collapse into: the entry gate is
+    // default-deny by workspace, and a workspace is a directory.
+    const root = tmpdir();
+    const out = path.join(root, 'out');
+    writeHarnessRoots(root);
+    const first = HARNESSES.find((h) => h.cwdSource === null);
+    const sessions = path.join(root, first.dir[0]);
+
+    const scan = runCli(['scan', '--agent', first.agent, '--root', sessions, '--out', out]);
+    assert.equal(scan.code, 1, `a harness with no cwd must not scan: ${scan.out}`);
+    assert.match(scan.out, /do not record a working directory/, scan.out);
+    // The refusal has to say there is no flag, because the operator's next
+    // move is to go looking for one.
+    assert.match(scan.out, /no flag that supplies it/, scan.out);
+    assert.ok(!fs.existsSync(path.join(out, 'review.md')), 'a refused scan wrote a review file anyway');
+
+    // Reading is still possible, and the refusal says so, so `types` works.
+    const types = runCli(['types', '--agent', first.agent, '--root', sessions]);
+    assert.notEqual(types.code, 1, `reading a cwd-less harness must still work: ${types.out}`);
+    fs.rmSync(root, { recursive: true, force: true });
   }],
 
   ['F237', 'the gemini-cli vocabulary is five message types and nothing else, with no file-history-snapshot', () => {

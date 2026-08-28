@@ -207,9 +207,10 @@ export function renderUsage() {
 Flags
   --root <path>            override the resolved session-storage root
   --agent <name>           which harness wrote these logs: claude-code (the
-                           default). Every reader but claude-code also needs
-                           --root: deident has no default location for them and
-                           will not guess one
+                           default), codex.
+                           Every reader but claude-code also needs --root:
+                           deident has no default location for them and will
+                           not guess one.
   --out <path>             output directory (default: current directory)
   --salt-dir <path>        override ~/.deident-private
   --html                   review: write one self-contained HTML file
