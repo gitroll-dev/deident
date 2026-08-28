@@ -28,7 +28,7 @@ third category is called out separately below, because it is neither.
 | Salted pseudonyms, no plaintext map, `--namespace` | Not optional: 23 lines in the live corpus already match `PERSON_n`, put there by the sessions that built this tool. An abort-only implementation cannot export the corpus of the people building it. |
 | `structuredPatch` distilled to a true added-line count | A wrong `0` manufactures an "abandoned" session downstream and no existing test catches it. |
 | Retention table over all 19 record types, unknown type refuses | A silent drop loses user turns that are scored. |
-| Four verification gates, abort before any write | The trust story is these plus the residual scan, and nothing else. |
+| Verification gates, abort before any write | The trust story is these plus the residual scan, and nothing else. |
 | Residual scan labelled `known-entity residue` | The label is the security control. A bare "safe" claims more than the mechanism delivers. |
 | `review.md` as report and config | The audit record. Someone other than the uploader has to be able to read what was decided. |
 | Candidate confirmation for low-confidence names | Replaces the mandatory-LLM constraint. Nobody gets stuck without an agent, and every candidate is seen by a person or a model. |

@@ -484,7 +484,7 @@ function writeCommandFirstSession(root, cwd, sessionId, command, then = null) {
 
 /**
  * One session carrying the classes of value that leaked from a finished export
- * with all six gates green: a document name ordering, a date of birth, a
+ * with every gate green: a document name ordering, a date of birth, a
  * postal address and a payment-platform account id.
  *
  * Every value is FABRICATED. What each one preserves is the shape:
@@ -2048,7 +2048,8 @@ const FIXTURES = [
   // the exact shape the tier-1 schema example invites, two names sharing a
   // token, the export contained the complete third-party name `Wang Ivy`
   // while the report read `4 replacements, all reversible  ok` and
-  // `known-entity residue  0  ok`. Three gates, all blind to one class.
+  // `known-entity residue  0  ok`. Every gate green, and all of them blind
+  // to one class.
   ['F53', 'a partially overlapping entity does not ship its tail', () => {
     const t = buildTable([
       entity('P1', 'person', 'Ada Wren', 'PERSON_1'),
@@ -2165,7 +2166,7 @@ const FIXTURES = [
 
     // Scheduled-trigger ids. Found by grepping the SHIPPED archive rather than
     // the report: one sat in plaintext in an export
-    // that had passed all six checks, because the reader listed two of the
+    // that had passed every check, because the reader listed two of the
     // three trigger ids in the corpus and nothing else was looking. This is a
     // fixed prefix plus 26 base62 characters, which is a machine's job and not
     // a reader's, and it is exactly the kind an entity list misses one of.
@@ -4192,7 +4193,7 @@ const FIXTURES = [
   //
   // node:zlib's crc32 arrived in Node 20.15 and 22.2, and it is used in exactly
   // one place: buildZip, which is step 17 of 17. So a person on an older Node
-  // reads the corpus, classifies it, substitutes, runs all five gates, and only
+  // reads the corpus, classifies it, substitutes, runs every gate, and only
   // then gets `TypeError: crc32 is not a function` - wrapped by the entry point
   // as "internal error, please report this", which is the shape BRIEF section 2
   // forbids. The version is knowable before any of that work happens.
@@ -6793,7 +6794,7 @@ const FIXTURES = [
   // reports a spelling replaced N times and offers ONE excerpt for it, so the
   // owner's real question - are those N a person's name or an ordinary word -
   // has no answer on the machine. §5's own worked example of the failure is the
-  // 202-occurrence common noun that passed all five gates.
+  // 202-occurrence common noun that passed every gate.
   //
   // Every fixture below drives the real CLI rather than the index module,
   // because the property under test is that the answer survives the round trip
@@ -7303,7 +7304,7 @@ const FIXTURES = [
   //
   // deident had two sources and both were inference. Tier 0 infers from machine
   // state, tier 1 infers from prose. Neither can be TOLD "this exact string is
-  // mine", and a finished export with all six gates green shipped 21 identity
+  // mine", and a finished export with every gate green shipped 21 identity
   // fields in plaintext because of it: three name spellings used across visa
   // documents, a date and place of birth, a household registration address in
   // two languages, three country addresses, a driving licence address, two
@@ -7752,11 +7753,11 @@ const FIXTURES = [
   //
   // Both leaks that this tool has ever actually caught were caught by oracles
   // OUTSIDE it: a grep of the shipped bytes, and a diff against a maintained
-  // identity file. known-values.json imported the second. The six green rows
-  // are all internal-consistency checks against the entity table, and each of
-  // them was CORRECT both times a leak shipped. The defect is that six rows
-  // read to a human as six independent confirmations of something much bigger
-  // than "the table was applied consistently".
+  // identity file. known-values.json imported the second. The green rows are
+  // all internal-consistency checks against the entity table, and each of
+  // them was CORRECT both times a leak shipped. The defect is that a column
+  // of rows reads to a human as that many independent confirmations of
+  // something much bigger than "the table was applied consistently".
   //
   // F175 - the presentation half. One line that states the joint claim, and an
   // explicit remainder line for what nothing here covers.
@@ -7771,7 +7772,7 @@ const FIXTURES = [
     const remainder = unverifiedRemainder(331_000, 14_900_000);
     const green = captureOutput(() => renderChecks(passing, remainder));
 
-    // Six rows of `ok` is the bug. One statement of what they jointly assert
+    // A row of `ok` per check is the bug. One statement of what they jointly assert
     // is the fix, so the per-check details must not each earn their own line.
     const okRows = green.split(NL).filter((line) => /\sok\s*$/.test(line));
     assert.equal(okRows.length, 0, `a passing run still prints a row per check:${NL}${green}`);
@@ -7794,7 +7795,7 @@ const FIXTURES = [
     assert.match(green, /97\.8%|97,8%/, `the remainder carries no measured figure:${NL}${green}`);
 
     // The failure direction, which is the one that must NOT collapse. A green
-    // row that becomes an opaque red row is worse than six rows.
+    // row that becomes an opaque red row is worse than the rows it replaced.
     const failing = passing.map((c, i) => (i === 3 ? { ...c, ok: false, detail: '3 occurrences of 47 entity spellings' } : c));
     const red = captureOutput(() => renderChecks(failing, remainder));
     for (const c of failing) {
@@ -7806,12 +7807,12 @@ const FIXTURES = [
 
   // F176 - the other two surfaces, and the rows go the OTHER way on purpose.
   //
-  // Six rows read as six confirmations to a HUMAN skimming a terminal. A
-  // consumer iterates the array and asserts every `ok`, forms no impression,
-  // and needs the per-check attribution the collapsed line gives up: SKILL.md
-  // step 6 tells an agent to name two of them to the person by name. The
-  // preview file is the same kind of surface, a document somebody opens to
-  // inspect detail. So both keep every row.
+  // A row per check reads as that many confirmations to a HUMAN skimming a
+  // terminal. A consumer iterates the array and asserts every `ok`, forms no
+  // impression, and needs the per-check attribution the collapsed line gives
+  // up: SKILL.md step 6 tells an agent to name two of them to the person by
+  // name. The preview file is the same kind of surface, a document somebody
+  // opens to inspect detail. So both keep every row.
   //
   // The REMAINDER goes on all three, because the blind spot is the same one
   // whoever is reading. An agent deciding whether to report "it worked" has it
@@ -7969,7 +7970,7 @@ const FIXTURES = [
   }],
 
   ['F184', 'a git remote proposes exclude, so no workspace exports without a typed admission', () => {
-    // Two exports shipped with all six gates green and both leaked, and neither
+    // Two exports shipped with every gate green and both leaked, and neither
     // leak was in a work repository. The proposal read `redact` for any
     // directory with a remote, `scan` wrote that word into column 1 of
     // review.md, and reading it back was indistinguishable from a tier the
@@ -8073,7 +8074,7 @@ const FIXTURES = [
 
   ['F181', 'the manifest states the sessions a human read against the total, and says zero out loud', () => {
     // A silent manifest is the failure this exists to fix: two archives shipped
-    // with all six gates green and nothing in either of them said that no human
+    // with every gate green and nothing in either of them said that no human
     // had opened a single session. An absent line reads as "not applicable"; a
     // zero reads as what it is.
     const base = {
@@ -8942,7 +8943,7 @@ const FIXTURES = [
   // so the prompt was kept in the archive and never put in front of a reader.
   // Measured end to end: a name appearing ONLY in a queued command went from
   // reaching the reader to not reaching them, with the archive still shipping
-  // it, the export exiting 0 and all six checks green. 506 of the 527 prompts
+  // it, the export exiting 0 and every check green. 506 of the 527 prompts
   // in that corpus had the plain-string shape that regressed.
   //
   // A name that is retained but invisible to the reader is un-declarable BY
@@ -9167,7 +9168,7 @@ const FIXTURES = [
   // null for anything that is not a string, so a block array walked past a
   // check that was looking at `undefined`.
   //
-  // Reproduced end to end through the real CLI: exit 0, six green checks, and
+  // Reproduced end to end through the real CLI: exit 0, every check green, and
   // a manifest printing `0 images  0 replaced with placeholders` and `0
   // harness injections` over an archive holding a base64 image body, a
   // credential, an injected span and an unreviewed block payload. It fires 58
@@ -11022,7 +11023,7 @@ const FIXTURES = [
   // the git remotes off the machine; NOTHING on the machine says that a given
   // string is the operator's passport number, so an operator who declared
   // nothing got nothing for it while every check reported green. docs/limits.md
-  // carries the measurement: six green checks, 21 identity fields in plaintext.
+  // carries the measurement: every check green, 21 identity fields in plaintext.
   //
   // So the export asks once, and the answer is written down. These four fix the
   // shape of that: the refusal, the acknowledged path, the declared path, and
@@ -11569,7 +11570,7 @@ const FIXTURES = [
 
   // F259 to F262. The output-side deny sweep.
   //
-  // One gate in this tool re-reads the finished archive: `checkResidue`, and
+  // One gate in this tool re-read the finished archive: `checkResidue`, and
   // that is why a second code path that skipped substitution could never
   // survive. Denial, injection-stripping and the placeholder had no such gate,
   // so each grew one list per caller and the tool was fixed four times for it:
@@ -11855,6 +11856,95 @@ const FIXTURES = [
     // built rather than hand-counted: n arrays inside n objects nests 2n.
     const woven = '{"a":['.repeat(40) + '1' + ']}'.repeat(40);
     assert.equal(nestingDepth(woven), 80);
+  }],
+
+  // F264, the count of checks was written by hand in forty places and drifted.
+  //
+  // "The six checks above are internal" printed under the manifest while five
+  // rows stood above it and three more, `archive on disk`, `output deny sweep`
+  // and `secret scan`, were still to print below: that line runs at pipeline
+  // step 16 and the archive those three read back does not exist until step 17.
+  // The same "six" was in README twice, in four documents, in SKILL.md, in a
+  // shipped refusal string and in twenty source comments, while three other
+  // comments said "five" and PLAN said "four". Four values for one number.
+  //
+  // Correcting it would have written today's value into forty places, which is
+  // the same defect with a fresher number in it. So one place states a count of
+  // deident's gates and it COUNTS them: renderChecks prints `${checks.length}
+  // passed`. Everywhere else says "every check" and cannot drift.
+  //
+  // The exception is a sentence that NAMES its members: cli-ux §7 and §12b each
+  // say "six" and then list six, so a reader counts rather than trusts. Those
+  // are out of scope below, and stale in a different way, in the claim rather
+  // than the count, since the credential scan does consult an external oracle.
+  //
+  // Scope here is what somebody takes on trust: the report a recipient reads,
+  // README, and the contract an agent is handed.
+  ['F264', 'no surface a reader trusts states a count of checks that nothing counted', () => {
+    // A number word, not a digit: a digit in these surfaces was computed by the
+    // run that printed it, and a spelled-out number never is. `one` is left out
+    // because "the one check that matters" is not a count.
+    const HAND_COUNTED = /\b(two|three|four|five|six|seven|eight|nine|ten)\s+(?:green\s+|of the\s+)?(?:checks?|gates?)\b/i;
+
+    const root = tmpdir();
+    const out = path.join(root, 'out');
+    const saltDir = path.join(root, 'salt');
+    writeCorpus(root);
+    assert.equal(runCli(['scan', '--root', root, '--out', out, '--salt-dir', saltDir], CORPUS_USER_ENV).code, 0);
+    setTier(path.join(out, 'review.md'), 'alpha', 'redact');
+    primeSemanticPass(root, out, saltDir, CORPUS_USER_ENV);
+    // --skip-secret-scan on purpose: this is the run with FEWER rows, and the
+    // sentence below has to be right on it as well as on a machine with
+    // trufflehog on PATH. It can only be right on both by naming no number.
+    const exported = runCli([
+      'export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir,
+      '--entities', path.join(root, 'ents.json'),
+    ], CORPUS_USER_ENV);
+    assert.equal(exported.code, 0, exported.out);
+
+    const lines = exported.out.split(NL);
+    const at = lines.findIndex((l) => /nobody has read any of this archive/.test(l));
+    assert.ok(at >= 0, `the run never said nobody read it:${NL}${exported.out}`);
+    const sentence = lines.slice(at, at + 2).join(' ');
+    // The offending text goes on the FIRST line of the message: selftest keeps
+    // only that line of a failure, so evidence pushed below a newline is lost
+    // to whoever has to act on it.
+    const oneLine = sentence.trim().replace(/\s+/g, ' ');
+    assert.doesNotMatch(
+      sentence,
+      HAND_COUNTED,
+      `the line that tells a person how much verification stands behind this archive counts by hand: "${oneLine}"`,
+    );
+    // Nor a digit. A count here would have to be right whether or not the
+    // secret scan ran, and the run cannot know that yet.
+    assert.doesNotMatch(sentence, /\d/, `the same line states a number it could not have counted: "${oneLine}"`);
+
+    const surfaces = [['the export report', exported.out]];
+    const repo = fileURLToPath(new URL('..', import.meta.url));
+    for (const f of ['README.md', path.join('skills', 'deident', 'SKILL.md')]) {
+      surfaces.push([f, fs.readFileSync(path.join(repo, f), 'utf8')]);
+    }
+    for (const [what, text] of surfaces) {
+      const hit = text.split(NL).find((l) => HAND_COUNTED.test(l));
+      assert.equal(hit, undefined, `${what} states a check count somebody has to maintain: ${(hit ?? '').trim()}`);
+    }
+
+    // The relationship, on the one place that DOES state a count. Two arrays of
+    // different length, and the printed number follows the array both times:
+    // asserting today's 5 would write the bug back into the suite.
+    const row = (label) => ({ label, detail: `${label} detail`, ok: true });
+    const remainder = unverifiedRemainder(331_000, 14_900_000);
+    for (const labels of [
+      ['serialization', 'substitution invariant', 'semantic pass'],
+      ['serialization', 'substitution invariant', 'pseudonym namespace', 'known-entity residue', 'semantic pass', 'a gate added tomorrow'],
+    ]) {
+      const text = captureOutput(() => renderChecks(labels.map(row), remainder));
+      assert.match(
+        text,
+        new RegExp(`\\b${labels.length} passed`),
+        `${labels.length} rows went in and the sentence does not say so:${NL}${text}`,
+      );
+    }
   }],
 
 ];

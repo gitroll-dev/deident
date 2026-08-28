@@ -220,7 +220,7 @@ with zero human turns. Orchestration stays visible through the parent session's
 ## deident cannot infer the list of your own literal values
 
 Everything above is inference, and inference cannot be told "this exact string
-is mine". A finished archive whose six checks were all green shipped 21 identity
+is mine". A finished archive whose checks were all green shipped 21 identity
 fields in plaintext for want of that: passport name orderings and three name
 spellings used across visa documents, a date and place of birth, a household
 registration address in two languages, three country addresses, a driving

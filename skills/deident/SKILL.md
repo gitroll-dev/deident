@@ -90,7 +90,7 @@ Everything else deident knows is inferred. Tier 0 infers from the machine (the
 username, paths, git config, credential shapes) and tier 1 infers from the prose
 (whatever a reader can see). Neither can be TOLD "this exact string is mine".
 
-Measured on a finished export whose six checks were all green: 21 identity
+Measured on a finished export whose checks were all green: 21 identity
 fields shipped in plaintext. Document name spellings, a date and place of birth,
 six addresses in two languages, a phone number, a payment account id. Most of
 them came out of one browser-automation session that had been filling a booking

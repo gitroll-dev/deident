@@ -139,7 +139,7 @@ function pathForms(spelling, home = null) {
     // turned that into the one-character needle `~`. A tilde is not a word
     // character, so buildTable gives it no boundary rule, and every tilde in
     // the corpus is replaced: `cd ~`, `~/.zshrc`, and `approx ~5 min` becoming
-    // a pseudonym with a digit welded to it. All five gates stay green, because
+    // a pseudonym with a digit welded to it. Every gate stays green, because
     // the residue scan looks for the spellings it was handed.
     //
     // The home directory has a full spelling that IS safe to replace, and it is

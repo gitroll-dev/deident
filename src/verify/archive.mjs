@@ -2,7 +2,7 @@
 //
 // Every other check in this tool answers "did the substitution I performed come
 // out right". That is a question about the pipeline, and it is answerable only
-// by the pipeline, which is why all six gates were green on two archives that
+// by the pipeline, which is why every gate was green on two archives that
 // leaked. Both leaks were found the same way: somebody opened the shipped bytes
 // and looked for something they already held.
 //

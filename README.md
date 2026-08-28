@@ -22,8 +22,8 @@ It cannot infer that a string is your name, your birth date, your phone number o
 a document number, because nothing on the machine says so. Those go in
 `~/.deident-private/known-values.json`, the export refuses until you either write
 it or say `--declare-nothing` once, and the manifest records which you chose. The
-gate exists because the alternative already happened: an archive whose six checks
-were all green shipped 21 identity fields in plaintext for want of that file
+gate exists because the alternative already happened: an archive whose checks were
+all green shipped 21 identity fields in plaintext for want of that file
 ([the form](#run-it), [the story](docs/limits.md#deident-cannot-infer-the-list-of-your-own-literal-values)).
 
 **And when it is written, check the file itself.** `deident verify <zip>` reads
@@ -103,7 +103,7 @@ inside a directory you typed by hand ([why](docs/design-rationale.md#opt-in-neve
 **Declare what deident cannot infer**, in `~/.deident-private/known-values.json`.
 A bare string is enough, `{"values": ["1974-11-03", {"kind": "person", "value":
 "Nora Lund"}]}`, and no file is the normal case, but it is the one list no inference
-reaches: an archive whose six checks were all green shipped 21 identity fields in
+reaches: an archive whose checks were all green shipped 21 identity fields in
 plaintext for want of it ([story](docs/limits.md#deident-cannot-infer-the-list-of-your-own-literal-values)).
 
 ## The four-stage funnel
@@ -125,10 +125,10 @@ any failure means nothing is written; `review`, the fifth entry point, renders
 characters cut 1,336,271 characters there, 10.3% of the prose, and **that number is
 printed** ([the arithmetic](docs/design-rationale.md#what-the-stages-cost)).
 
-**Three of the checks read the file, not the strings behind it.** Every other check
+**The last checks read the file, not the strings behind it.** Every other check
 runs over a copy assembled in memory beside the entries, so the deflate path, the
 entry naming and the rename from `.part` are outside all of them. After the zip is
-written deident re-opens it and runs three passes over what came back: the
+written deident re-opens it and runs them over what came back: the
 known-entity residue scan and a credential scan, both of which delete the archive on
 a finding, and an **output deny sweep** that re-runs every deny rule, the
 injected-span patterns and your own `denied.json` over the shipped bytes, entry names
@@ -205,7 +205,7 @@ edits have added > 0 with net == 0 (BRIEF §4.2).
 
 ## Development
 
-`node deident.js --selftest` runs 259 fixtures on plain `node:assert`, no framework,
+`node deident.js --selftest` runs 260 fixtures on plain `node:assert`, no framework,
 in `test/selftest.mjs`; each catches a specific bug, named in the fixture. Section
 numbers in the source refer to `BRIEF.md` and `PLAN.md`. Never commit a session log,
 an export, a preview diff or the salt; `.gitignore` covers all of them.

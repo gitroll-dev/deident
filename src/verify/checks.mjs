@@ -1,6 +1,6 @@
 // The verification gates. Writes nothing, repairs nothing.
 //
-// PLAN §4.1 lists eleven invariants; the four that gate the export live here.
+// PLAN §4.1 lists eleven invariants; the ones that gate the export live here.
 // Any failure becomes a RefusalError, and by construction the zip writer is
 // unreachable until these have returned pass (PLAN §2, step 17).
 
@@ -439,9 +439,9 @@ export function toReportRows(checks) {
  *
  * Every check in this file compares the output against the entity table it was
  * given. Not one compares it against the sessions, so the question "does the
- * table name everyone in here" has no answer anywhere in the run, and six green
- * rows read as though it did. This is the counterweight, and it has to carry a
- * number or it is a disclaimer rather than a measurement.
+ * table name everyone in here" has no answer anywhere in the run, and a
+ * table of green rows reads as though it did. This is the counterweight, and
+ * it has to carry a number or it is a disclaimer rather than a measurement.
  *
  * The unit is PROSE AS A FRACTION OF THE ARCHIVE, and the three candidates it
  * was chosen over each fail for their own reason:

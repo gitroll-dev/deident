@@ -804,7 +804,7 @@ export async function runExport(flags, env) {
 
   //  0  the declaration gate. known-values.json is the one list no inference
   //     reaches, and an export that never had it ships the operator's own
-  //     passport number with all six checks green. Silence stops being an
+  //     passport number with every check green. Silence stops being an
   //     answer here: this run either has the file, or the operator says once
   //     that they have nothing, and the manifest states which. Checked in the
   //     first second, before twenty minutes of retention, for the same reason

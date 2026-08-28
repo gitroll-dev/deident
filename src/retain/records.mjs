@@ -730,7 +730,7 @@ function retainAttachment(rec, ctx, where) {
   // verbatim: BLOCK_DECISIONS never saw them, `image` was never counted, the
   // `document` placeholder was never emitted, `stripInjected` never ran and
   // `deniedTextReason` never ran. Reproduced end to end through the real CLI:
-  // exit 0, six green checks, and a manifest printing `0 images` and `0
+  // exit 0, every check green, and a manifest printing `0 images` and `0
   // harness injections` over an archive holding a base64 image body, a
   // credential and a `<system-reminder>` span. It fires 58 times in this
   // author's own live corpus.

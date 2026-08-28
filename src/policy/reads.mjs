@@ -1,6 +1,6 @@
 // Which shipped sessions a human actually opened, so the manifest can say so.
 //
-// Two archives shipped with all six gates green and both leaked. Every gate in
+// Two archives shipped with every gate green and both leaked. Every gate in
 // this tool is an internal-consistency check (cli-ux §12b), so not one of them
 // can answer "was everything that should have been substituted, substituted".
 // The only instrument that can is a person reading a session, and until now the
@@ -14,13 +14,13 @@
 // and the output directory is the one the person is standing in when they send
 // it.
 //
-// It is NOT a gate. cli-ux §12b argues the case against adding a seventh check
-// that repeats what the six already do; the case here is narrower. A gate a
-// person clears by opening one arbitrary session buys a checkbox, not a look,
-// and a gate that can only ever be red on a 205-session corpus is the first
-// thing switched off. The number ships WITH the archive instead, to the
-// recipient, who is the person the claim is being made to. The uploader cannot
-// make it look better without doing the reading, and cannot hide it.
+// It is NOT a gate. cli-ux §12b argues the case against adding a check that
+// repeats what the entity-table gates already do; the case here is narrower.
+// A gate a person clears by opening one arbitrary session buys a checkbox,
+// not a look, and a gate that can only ever be red on a 205-session corpus
+// is the first thing switched off. The number ships WITH the archive instead,
+// to the recipient, who is the person the claim is being made to. The uploader
+// cannot make it look better without doing the reading, and cannot hide it.
 
 import fs from 'node:fs';
 import path from 'node:path';
