@@ -10113,6 +10113,35 @@ const FIXTURES = [
     );
   }],
 
+  ['F236', 'the opencode vocabulary is two roles and seven part types, and the heavy one is shape-only', () => {
+    // Measured over 60 opencode documents, 1034 messages: assistant 933,
+    // user 101; parts tool 1794, step-start 930, step-finish 929,
+    // reasoning 803, text 257, patch 76, file 5.
+    const s = loadSchema('opencode');
+    assert.deepEqual(s.recordTypes, { user: 'keep', assistant: 'keep' }, 'opencode recordTypes drifted from the measured roles');
+    assert.deepEqual(s.contentBlocks, {
+      text: 'keep', reasoning: 'keep', tool: 'shape-only', patch: 'drop',
+      file: 'drop', 'step-start': 'drop', 'step-finish': 'drop',
+    }, 'opencode contentBlocks drifted from the measured part types');
+    assert.deepEqual(s.attachmentTypes, {}, 'opencode grew an attachment vocabulary');
+    assert.deepEqual(s.systemSubtypes, {}, 'opencode grew a system-subtype vocabulary');
+
+    // `tool` is 94% of the corpus by weight and 8.7 MB of it is state.output.
+    // It is the only part type that is mostly payload nobody reads.
+    assert.equal(s.contentBlocks.tool, 'shape-only', 'the one opencode part carrying tool output stopped being shape-only');
+
+    // `reasoning` was checked against real records rather than assumed to be
+    // empty the way Claude Code's thinking is: 803 parts, 101174 bytes of
+    // text, 8 empty. Dropping it would discard measured agent prose.
+    assert.equal(s.contentBlocks.reasoning, 'keep', 'opencode reasoning carries real prose and must not be dropped');
+
+    // `patch` and `file` are named after content they do not carry: patch is
+    // {hash, files}, file is {mime, filename, url, source}. Both are paths and
+    // identifiers, so both drop.
+    assert.equal(s.contentBlocks.patch, 'drop', 'opencode patch carries no diff, only a hash and absolute paths');
+    assert.equal(s.contentBlocks.file, 'drop', 'opencode file carries no body, only a path and a mention offset');
+  }],
+
 ];
 
 export function selftest() {

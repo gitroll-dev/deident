@@ -1,0 +1,45 @@
+{
+  "agent": "opencode",
+  "version": "2026-08",
+  "extractedFrom": "60 opencode session documents, 1034 messages, 4794 parts, SALT-NLP/SWE-chat",
+  "note": "opencode is not JSONL. The whole file is one JSON document, {info, messages}, each message is {info, parts}, and the role sits at message.info.role rather than on the message itself. The record discriminator is therefore that role, and the payload discriminator is part.type, which is a genuine type-tagged union. recordTypes decides the two roles; contentBlocks decides the seven part types. opencode has no attachment vocabulary and no system-subtype vocabulary, so those keys are absent rather than empty. The document-level `info` header is not a typed record and has no entry here; what it holds and why that is a problem is under findings. Names are decided from opencode's own parts and are not mapped onto, derived from, or aligned with any other harness's vocabulary: opencode's `reasoning` is not Codex's `reasoning` and is not Claude Code's `thinking`, they were each measured separately and they do not agree.",
+  "decisions": {
+    "recordTypes": {
+      "keep": "carried",
+      "drop": "never written"
+    },
+    "contentBlocks": {
+      "keep": "carried",
+      "drop": "never written",
+      "shape-only": "structure kept, content discarded"
+    }
+  },
+  "recordTypes": {
+    "user": "keep",
+    "assistant": "keep"
+  },
+  "contentBlocks": {
+    "text": "keep",
+    "reasoning": "keep",
+    "tool": "shape-only",
+    "patch": "drop",
+    "file": "drop",
+    "step-start": "drop",
+    "step-finish": "drop"
+  },
+  "rationale": {
+    "recordTypes.user": "101 messages. Carries the user's prompts as text parts; 198837 bytes of text across the corpus are on user messages. The message-level info holds an agent name, a model, a tools map and a summary, none of which is a turn.",
+    "recordTypes.assistant": "933 messages. Carries the agent's prose, its reasoning and every tool call. The message-level info holds modelID, providerID, cost, tokens, finish, and `path` with cwd and root as absolute paths under the account's home directory, which is a reader's problem on a kept record rather than a reason to drop the role.",
+    "contentBlocks.text": "257 parts, 418110 bytes, split 198837 user and 164244 assistant. Both halves of the conversation reach deident only through this name.",
+    "contentBlocks.reasoning": "803 parts, 308415 bytes of which 101174 are the `text` field itself, and only 8 of the 803 are empty. Checked rather than assumed: the Claude Code precedent, where 7771 thinking blocks measured empty at 0 bytes, does not transfer here. opencode writes real agent prose, short and titled, such as a bolded planning heading. The encrypted half is separate, under metadata.opencode.reasoningEncryptedContent, and read REDACTED in the corpus, which is the dataset's scrub rather than opencode's. Kept, with a real byte cost.",
+    "contentBlocks.tool": "1794 parts, 18236979 bytes, which is 94 percent of the corpus by weight on its own. state.output alone is 8785679 bytes against 418678 for state.input, so the record is overwhelmingly tool output. Tool names measured: read 1019, grep 270, bash 200, glob 133, webfetch 47, apply_patch 42. The call, its status and its shape are what a reader reads; the output is what the model read. shape-only for the reason docs/limits.md gives: with nothing kept there is no cap to set generously.",
+    "contentBlocks.patch": "76 parts, 29431 bytes. The name says diff and it was checked: there is no diff. The part is {hash, files}, a git object hash plus an array of absolute file paths. So it carries an identifier and a file listing and nothing a reader would read, and the file listing is the attachmentTypes.directory hazard on the Claude Code side, project and client vocabulary at its most concentrated. The agent's actual authored change survives as the apply_patch call under `tool`.",
+    "contentBlocks.file": "5 parts, 72683 bytes. Checked for file bodies: there are none. The part is {mime, filename, url, source} where url is a file:// URL under the account's home directory and source.text.value is the @-mention span the user typed, with byte offsets. A path, a filename and a mention offset, which is the pdf_reference and already_read_file situation reached independently: a path is an identifier. The 72683 bytes are the envelope, not content.",
+    "contentBlocks.step-start": "930 parts, 182814 bytes. A single `snapshot` field holding a git commit sha. A marker with an identifier on it.",
+    "contentBlocks.step-finish": "929 parts, 303861 bytes. A finish-reason enum, the same git sha, a cost float, and a token counter block. Counters and enums."
+  },
+  "findings": {
+    "sessionInfoUndecided": "The document-level `info` header has no entry in this vocabulary, because it is not a typed record and inventing a name for it here would put a key into a map of role values and make the vocabulary lie about its own shape. It still holds identifiers, and they are named here so the reader PR cannot miss them: id, slug, projectID, `directory` as an absolute path carrying the account name, `title` which is the user's opening request in the clear, version, a summary block, a permission list, and time. Thirty of the sixty documents also carry parentID, which links a subsession to its parent. Whoever writes the opencode reader decides this header explicitly or it ships whole. This key is prose for a human; the loader reads only the four decision sections and ignores it.",
+    "messageInfoUndecided": "Same status for message.info, which is a header rather than a typed record: role, time, agent, id, sessionID, parentID, modelID, providerID, mode, cost, tokens, finish, variant, summary, model, tools, error, and `path` with cwd and root as absolute paths. Kept records carry it, so the reader decides it field by field the way records.mjs already does for Claude Code, not here."
+  }
+}
