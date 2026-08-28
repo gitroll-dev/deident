@@ -10034,6 +10034,56 @@ const FIXTURES = [
     fs.rmSync(root, { recursive: true, force: true });
   }],
 
+  // ---------------------------------------------------------------------
+  // The other four harnesses. Each vocabulary was decided by opening that
+  // harness's own records; the expected sets below are literals written from
+  // those measurements, not recomputed from the files under test, so a fixture
+  // disagrees with the schema instead of agreeing with it by construction.
+  //
+  // These schemas do NOT make the harnesses exportable. deident's corpus
+  // reader knows one storage layout, and two of these four are not even JSONL.
+  // ---------------------------------------------------------------------
+
+  ['F234', 'the codex vocabulary is the 34 names its transcripts contain, across two nesting levels', () => {
+    // Measured over 60 Codex sessions, 15714 lines: response_item 8865,
+    // event_msg 6627, turn_context 159, session_meta 60, compacted 3. Codex
+    // nests a type-tagged union inside a type-tagged line, so a name at either
+    // level with no decision must refuse; this fixture fails if a level is
+    // dropped from the file and the deeper names silently stop being decided.
+    const s = loadSchema('codex');
+    const recordTypes = {
+      response_item: 'keep', event_msg: 'keep', turn_context: 'drop',
+      session_meta: 'drop', compacted: 'keep',
+    };
+    const contentBlocks = {
+      message: 'keep', function_call: 'keep', function_call_output: 'shape-only',
+      reasoning: 'keep', custom_tool_call: 'keep', custom_tool_call_output: 'shape-only',
+      ghost_snapshot: 'drop', web_search_call: 'drop',
+      token_count: 'drop', exec_command_end: 'shape-only', agent_reasoning: 'keep',
+      mcp_tool_call_end: 'shape-only', agent_message: 'keep', patch_apply_end: 'shape-only',
+      task_started: 'drop', user_message: 'keep', task_complete: 'keep',
+      collab_waiting_end: 'drop', collab_agent_spawn_end: 'keep', collab_close_end: 'keep',
+      entered_review_mode: 'drop', exited_review_mode: 'keep', turn_aborted: 'drop',
+      web_search_end: 'keep', context_compacted: 'drop', thread_rolled_back: 'drop',
+      view_image_tool_call: 'drop', input_text: 'keep', output_text: 'keep',
+    };
+    assert.deepEqual(s.recordTypes, recordTypes, 'codex recordTypes drifted from the measured line types');
+    assert.deepEqual(s.contentBlocks, contentBlocks, 'codex contentBlocks drifted from the measured payload types');
+    assert.equal(Object.keys(s.contentBlocks).length, 29, 'codex should decide 8 response_item payloads, 19 event_msg payloads and 2 message blocks');
+
+    // Codex has no attachment or system-subtype equivalent. The key is absent
+    // from the file rather than present and empty, and the loader must not
+    // invent one.
+    assert.deepEqual(s.attachmentTypes, {}, 'codex grew an attachment vocabulary it has no records for');
+    assert.deepEqual(s.systemSubtypes, {}, 'codex grew a system-subtype vocabulary it has no records for');
+
+    // The three payload types that are mostly tool output, and nothing else,
+    // are the shape-only ones. Naming them here is what stops a later edit
+    // from quietly widening a 13 MB payload to `keep`.
+    const shapeOnly = Object.entries(s.contentBlocks).filter(([, d]) => d === 'shape-only').map(([n]) => n).sort();
+    assert.deepEqual(shapeOnly, ['custom_tool_call_output', 'exec_command_end', 'function_call_output', 'mcp_tool_call_end', 'patch_apply_end'].sort(), 'the shape-only set changed');
+  }],
+
 ];
 
 export function selftest() {
