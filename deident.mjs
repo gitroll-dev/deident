@@ -79,6 +79,11 @@ export async function main(argv, env) {
             report.endMachine();
             return code;
           }
+          case 'verify': {
+            const code = await pipeline.runVerify(opts.flags, env);
+            report.endMachine();
+            return code;
+          }
           default:
             // parseCliArgs already rejected anything else.
             report.renderUsage();

@@ -7,7 +7,7 @@ import { DEFAULT_TRIAGE_CHARS, MAX_TRIAGE_CHARS } from '../policy/triage.mjs';
 import { CANDIDATE_BATCH_CHARS } from '../retain/constants.mjs';
 import { AGENT_IDS } from '../corpus/agents.mjs';
 
-export const COMMANDS = Object.freeze(['scan', 'review', 'triage', 'export', 'types']);
+export const COMMANDS = Object.freeze(['scan', 'review', 'triage', 'export', 'types', 'verify']);
 
 // flag -> {type, multiple?, commands}. `commands: null` means every command.
 const FLAGS = Object.freeze({
@@ -86,13 +86,20 @@ export function parseCliArgs(argv) {
 
   const { values, positionals } = parsed;
 
-  if (positionals.length > 1) {
+  // `verify` takes the archive as its second word, because the thing being
+  // verified is a file the operator already has in hand and `deident verify
+  // <zip>` is what they will type. Every other command still takes exactly one.
+  const takesPath = positionals[0] === 'verify';
+  if (positionals.length > (takesPath ? 2 : 1)) {
     throw new UsageError(
-      `expected one command, got ${positionals.length}: ${positionals.join(' ')}`,
+      takesPath
+        ? `expected one archive, got ${positionals.length - 1}: ${positionals.slice(1).join(' ')}`
+        : `expected one command, got ${positionals.length}: ${positionals.join(' ')}`,
     );
   }
 
   const command = positionals[0] ?? null;
+  const archive = takesPath ? (positionals[1] ?? null) : null;
   if (command !== null && !COMMANDS.includes(command)) {
     throw new UsageError(`unknown command "${command}"`);
   }
@@ -188,6 +195,9 @@ export function parseCliArgs(argv) {
     flags: {
       root: values.root ?? null,
       agent: values.agent ?? null,
+      // `verify` only. Null for every other command, so nothing else can read
+      // a path it was never given.
+      archive,
       out: values.out ?? null,
       saltDir: values['salt-dir'] ?? null,
       html: values.html === true,

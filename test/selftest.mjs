@@ -37,6 +37,7 @@ import { probeCounts, probeOutliers } from '../src/entities/probe.mjs';
 import { substituteRecord } from '../src/substitute/walker.mjs';
 import { checkSubstitution, checkSemanticPass, semanticRefusal, coverageRefusal, unverifiedRemainder, residueRefusal } from '../src/verify/checks.mjs';
 import { checkDeclaredValues } from '../src/verify/declared.mjs';
+import { verifyArchive } from '../src/verify/archive.mjs';
 import { scanForSecrets, secretScanLine, SCANNER } from '../src/verify/secretscan.mjs';
 import { residualScan, startsInsideEscape, jsonEscaped } from '../src/verify/residual.mjs';
 import { distillToolResult, retainToolUseResult } from '../src/retain/toolresult.mjs';
@@ -88,7 +89,7 @@ import {
   loadOrCreateSalt,
   defaultSaltDir,
 } from '../src/entities/pseudonym.mjs';
-import { buildZip, readZip, readZipFile, MAX_ENTRIES } from '../src/output/zip.mjs';
+import { buildZip, readZip, readZipFile, writeZip, MAX_ENTRIES } from '../src/output/zip.mjs';
 import { renderPreview } from '../src/output/preview.mjs';
 import {
   parseReview,
@@ -10672,6 +10673,78 @@ const FIXTURES = [
       assert.equal(r.code, 1, `${name} ran without --root: ${r.out}`);
       assert.match(r.out, /--root is required/, r.out);
       assert.match(r.out, /does not guess one/, r.out);
+    }
+  }],
+
+  ['F245', 'verify reports what is IN the archive, and says so when it cannot answer', () => {
+    // Every other check answers "did the substitution come out right", which is
+    // a question about the pipeline and answerable only by the pipeline. Both
+    // real leaks in this tool's history were found the other way: somebody
+    // opened the shipped bytes and looked for something they already held. A
+    // teammate did that, saw his own details, and concluded the tool does
+    // nothing. This is the command he should have had.
+    const zip = path.join(tmpdir(), 'verify-fixture.zip');
+    const saltDir = path.join(tmpdir(), 'verify-salt');
+    fs.mkdirSync(saltDir, { recursive: true });
+
+    const body = JSON.stringify({
+      type: 'user',
+      message: { role: 'user', content: [{ type: 'text', text: 'see app.notion.com/p/3b90b700541e815891c5e5e0fe2812ae and ask Nora Lund' }] },
+    });
+    writeZip([{ name: 'sessions/WS/one.jsonl', data: body }], zip);
+
+    // 1. With nothing declared, the command must NOT report a pass on the one
+    // question it cannot answer. Silence here is what shipped 21 identity
+    // fields once already.
+    fs.writeFileSync(path.join(saltDir, 'known-values.json'), JSON.stringify({ values: [] }));
+    const blind = verifyArchive(zip, { saltDir });
+    assert.equal(blind.declared.available, false, 'an empty declaration was treated as an answer');
+    assert.match(String(blind.declared.why), /nothing is declared/);
+
+    // 2. Declared and present: it is found, and the VALUE is not handed back.
+    fs.writeFileSync(
+      path.join(saltDir, 'known-values.json'),
+      JSON.stringify({ values: [{ kind: 'person', value: 'Nora Lund' }] }),
+    );
+    const seen = verifyArchive(zip, { saltDir });
+    assert.equal(seen.declared.available, true);
+    assert.equal(seen.declared.hits.length, 1, 'a declared value in the archive was not found');
+    assert.equal(seen.declared.hits[0].count, 1);
+    assert.ok(
+      !JSON.stringify(seen.declared.hits).includes('Nora Lund'),
+      'the result carries the declared value back, which puts an identity in a terminal',
+    );
+
+    // 3. The service-id class README names as a limit is COUNTED, not assumed
+    // away. Measured on the archive shipped 2026-08-27: 10 Notion page ids.
+    const notion = seen.serviceIds.find((x) => /Notion/.test(x.label));
+    assert.ok(notion, 'a Notion page id in the archive was not reported');
+    assert.equal(notion.count, 1);
+  }],
+
+  ['F246', 'verify is read-only and needs an archive, and no other command takes a path', () => {
+    // It runs on the file the operator is about to send, so it must not be able
+    // to change it, and it must not be reachable by accident from a command
+    // that was given a directory.
+    const parsed = parseCliArgs(['verify', 'a.zip']);
+    assert.equal(parsed.command, 'verify');
+    assert.equal(parsed.flags.archive, 'a.zip');
+
+    // Every other command leaves it null, so nothing else can read a path it
+    // was never given.
+    for (const c of ['scan', 'triage', 'export', 'types']) {
+      assert.equal(parseCliArgs([c]).flags.archive, null, `${c} accepted an archive path`);
+    }
+    assert.throws(() => parseCliArgs(['export', 'a.zip']), /expected one command/);
+
+    // Read-only, asserted against the source rather than trusted: the module
+    // that reads the archive must not write.
+    const src = fs.readFileSync(
+      path.join(fileURLToPath(new URL('..', import.meta.url)), 'src', 'verify', 'archive.mjs'),
+      'utf8',
+    );
+    for (const forbidden of ['writeFileSync', 'appendFileSync', 'rmSync', 'unlinkSync', 'mkdirSync']) {
+      assert.ok(!src.includes(forbidden), `the archive verifier calls ${forbidden}`);
     }
   }],
 
