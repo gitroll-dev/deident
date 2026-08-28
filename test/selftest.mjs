@@ -14,7 +14,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 
-import { loadSchema } from '../src/retain/schema.mjs';
+import { loadSchema, knownAgents } from '../src/retain/schema.mjs';
 import { expandVariants, looseVariants, squashedForm, isCjkOnly, backslashUEscape } from '../src/entities/variants.mjs';
 import { hanVariants, foldTable } from '../src/entities/hanfold.mjs';
 import {
@@ -10032,6 +10032,250 @@ const FIXTURES = [
       'an overlay silently overrode a shipped decision',
     );
     fs.rmSync(root, { recursive: true, force: true });
+  }],
+
+  // ---------------------------------------------------------------------
+  // The other four harnesses. Each vocabulary was decided by opening that
+  // harness's own records; the expected sets below are literals written from
+  // those measurements, not recomputed from the files under test, so a fixture
+  // disagrees with the schema instead of agreeing with it by construction.
+  //
+  // These schemas do NOT make the harnesses exportable. deident's corpus
+  // reader knows one storage layout, and two of these four are not even JSONL.
+  // ---------------------------------------------------------------------
+
+  ['F234', 'the codex vocabulary is the 34 names its transcripts contain, across two nesting levels', () => {
+    // Measured over 60 Codex sessions, 15714 lines: response_item 8865,
+    // event_msg 6627, turn_context 159, session_meta 60, compacted 3. Codex
+    // nests a type-tagged union inside a type-tagged line, so a name at either
+    // level with no decision must refuse; this fixture fails if a level is
+    // dropped from the file and the deeper names silently stop being decided.
+    const s = loadSchema('codex');
+    const recordTypes = {
+      response_item: 'keep', event_msg: 'keep', turn_context: 'drop',
+      session_meta: 'drop', compacted: 'keep',
+    };
+    const contentBlocks = {
+      message: 'keep', function_call: 'keep', function_call_output: 'shape-only',
+      reasoning: 'keep', custom_tool_call: 'keep', custom_tool_call_output: 'shape-only',
+      ghost_snapshot: 'drop', web_search_call: 'drop',
+      token_count: 'drop', exec_command_end: 'shape-only', agent_reasoning: 'keep',
+      mcp_tool_call_end: 'shape-only', agent_message: 'keep', patch_apply_end: 'shape-only',
+      task_started: 'drop', user_message: 'keep', task_complete: 'keep',
+      collab_waiting_end: 'drop', collab_agent_spawn_end: 'keep', collab_close_end: 'keep',
+      entered_review_mode: 'drop', exited_review_mode: 'keep', turn_aborted: 'drop',
+      web_search_end: 'keep', context_compacted: 'drop', thread_rolled_back: 'drop',
+      view_image_tool_call: 'drop', input_text: 'keep', output_text: 'keep',
+    };
+    assert.deepEqual(s.recordTypes, recordTypes, 'codex recordTypes drifted from the measured line types');
+    assert.deepEqual(s.contentBlocks, contentBlocks, 'codex contentBlocks drifted from the measured payload types');
+    assert.equal(Object.keys(s.contentBlocks).length, 29, 'codex should decide 8 response_item payloads, 19 event_msg payloads and 2 message blocks');
+
+    // Codex has no attachment or system-subtype equivalent. The key is absent
+    // from the file rather than present and empty, and the loader must not
+    // invent one.
+    assert.deepEqual(s.attachmentTypes, {}, 'codex grew an attachment vocabulary it has no records for');
+    assert.deepEqual(s.systemSubtypes, {}, 'codex grew a system-subtype vocabulary it has no records for');
+
+    // The three payload types that are mostly tool output, and nothing else,
+    // are the shape-only ones. Naming them here is what stops a later edit
+    // from quietly widening a 13 MB payload to `keep`.
+    const shapeOnly = Object.entries(s.contentBlocks).filter(([, d]) => d === 'shape-only').map(([n]) => n).sort();
+    assert.deepEqual(shapeOnly, ['custom_tool_call_output', 'exec_command_end', 'function_call_output', 'mcp_tool_call_end', 'patch_apply_end'].sort(), 'the shape-only set changed');
+  }],
+
+  ['F235', 'the cursor vocabulary is four names, and turn_ended is left undecided on purpose', () => {
+    // Measured over 19 Cursor sessions, 1024 lines: assistant 848, user 176;
+    // text 909 (733 assistant, 176 user), tool_use 403. Cursor's record key is
+    // the role and there is no third key anywhere in the corpus.
+    const s = loadSchema('cursor');
+
+    // Checked BEFORE the exact-set assertions below, so that deciding it
+    // reports the mistake that was actually made rather than a set mismatch.
+    // turn_ended is reported elsewhere and appears in none of the 1024 lines.
+    // Deciding it would be the guess the fail-closed rule exists to prevent,
+    // so it must stay absent and refuse on the first corpus that has one.
+    assert.equal(s.recordTypes.turn_ended, undefined, 'turn_ended was decided without a record to decide it from');
+    assert.equal(s.contentBlocks.turn_ended, undefined, 'turn_ended was decided without a record to decide it from');
+
+    assert.deepEqual(s.recordTypes, { user: 'keep', assistant: 'keep' }, 'cursor recordTypes drifted from the measured roles');
+    assert.deepEqual(s.contentBlocks, { text: 'keep', tool_use: 'keep' }, 'cursor contentBlocks drifted from the measured blocks');
+    assert.deepEqual(s.attachmentTypes, {}, 'cursor grew an attachment vocabulary');
+    assert.deepEqual(s.systemSubtypes, {}, 'cursor grew a system-subtype vocabulary');
+
+    // Cursor's exported transcript carries 403 tool calls and zero results, so
+    // there is nothing on this harness for shape-only to describe. A
+    // shape-only entry appearing here would mean someone copied a decision
+    // across from a harness that does emit results.
+    assert.ok(
+      !Object.values(s.contentBlocks).includes('shape-only'),
+      'cursor gained a shape-only decision, but its transcripts contain no tool output at all',
+    );
+  }],
+
+  ['F236', 'the opencode vocabulary is two roles and seven part types, and the heavy one is shape-only', () => {
+    // Measured over 60 opencode documents, 1034 messages: assistant 933,
+    // user 101; parts tool 1794, step-start 930, step-finish 929,
+    // reasoning 803, text 257, patch 76, file 5.
+    const s = loadSchema('opencode');
+    assert.deepEqual(s.recordTypes, { user: 'keep', assistant: 'keep' }, 'opencode recordTypes drifted from the measured roles');
+    assert.deepEqual(s.contentBlocks, {
+      text: 'keep', reasoning: 'keep', tool: 'shape-only', patch: 'drop',
+      file: 'drop', 'step-start': 'drop', 'step-finish': 'drop',
+    }, 'opencode contentBlocks drifted from the measured part types');
+    assert.deepEqual(s.attachmentTypes, {}, 'opencode grew an attachment vocabulary');
+    assert.deepEqual(s.systemSubtypes, {}, 'opencode grew a system-subtype vocabulary');
+
+    // `tool` is 94% of the corpus by weight and 8.7 MB of it is state.output.
+    // It is the only part type that is mostly payload nobody reads.
+    assert.equal(s.contentBlocks.tool, 'shape-only', 'the one opencode part carrying tool output stopped being shape-only');
+
+    // `reasoning` was checked against real records rather than assumed to be
+    // empty the way Claude Code's thinking is: 803 parts, 101174 bytes of
+    // text, 8 empty. Dropping it would discard measured agent prose.
+    assert.equal(s.contentBlocks.reasoning, 'keep', 'opencode reasoning carries real prose and must not be dropped');
+
+    // `patch` and `file` are named after content they do not carry: patch is
+    // {hash, files}, file is {mime, filename, url, source}. Both are paths and
+    // identifiers, so both drop.
+    assert.equal(s.contentBlocks.patch, 'drop', 'opencode patch carries no diff, only a hash and absolute paths');
+    assert.equal(s.contentBlocks.file, 'drop', 'opencode file carries no body, only a path and a mention offset');
+  }],
+
+  ['F237', 'the gemini-cli vocabulary is five message types and nothing else, with no file-history-snapshot', () => {
+    // Measured over 56 Gemini CLI documents, 6391 messages: gemini 5647,
+    // user 603, info 118, warning 14, error 9.
+    const s = loadSchema('gemini-cli');
+    assert.deepEqual(s.recordTypes, {
+      gemini: 'keep', user: 'keep', info: 'drop', warning: 'drop', error: 'drop',
+    }, 'gemini-cli recordTypes drifted from the measured message types');
+
+    // `type` is the only discriminator Gemini CLI has. content is a string and
+    // thoughts / toolCalls / displayContent are fields, not a tagged union, so
+    // there are no content blocks to decide. An empty-but-present section
+    // would claim a vocabulary this harness does not have.
+    assert.deepEqual(s.contentBlocks, {}, 'gemini-cli grew a content-block vocabulary, but its content is a plain string');
+    assert.deepEqual(s.attachmentTypes, {}, 'gemini-cli grew an attachment vocabulary');
+    assert.deepEqual(s.systemSubtypes, {}, 'gemini-cli grew a system-subtype vocabulary');
+
+    // The reported collision with a Claude Code type does not exist on
+    // Gemini's own evidence: file-history-snapshot occurs only in the two
+    // Claude Code transcripts misfiled into the Gemini directory, and in none
+    // of the 56 Gemini documents. So it stays undecided and refuses, rather
+    // than being decided from another harness's records.
+    assert.equal(s.recordTypes['file-history-snapshot'], undefined, 'a Gemini decision was recorded from a Claude Code record');
+    assert.equal(loadSchema('claude-code').recordTypes['file-history-snapshot'], 'drop', 'this fixture needs the Claude Code type it is being distinguished from');
+  }],
+
+  ['F238', 'every agent fails closed on its own: an undecided name is refused, and rationale explains only real decisions', () => {
+    // The property the four new files must not cost. Asserted per agent
+    // because each one is loaded independently: a name nobody decided has no
+    // decision to find, in any section, for any harness.
+    const invented = 'zz-a-name-no-schema-ships';
+    const repo = fileURLToPath(new URL('..', import.meta.url));
+    const agents = knownAgents();
+    assert.deepEqual(agents, ['claude-code', 'codex', 'cursor', 'gemini-cli', 'opencode'], 'the shipped agent list changed');
+
+    for (const agent of agents) {
+      const s = loadSchema(agent);
+      for (const section of ['recordTypes', 'attachmentTypes', 'systemSubtypes', 'contentBlocks']) {
+        assert.equal(s[section][invented], undefined, `${agent} ${section} produced a decision for a name nobody shipped`);
+      }
+      assert.ok(Object.keys(s.recordTypes).length > 0, `${agent} ships no record types, so every record would be unknown`);
+
+      // A rationale for a name the file does not decide reads as though the
+      // type is handled when it is not. Same property F230 asserts for
+      // claude-code, extended to every agent so a new file cannot skip it.
+      const dir = path.join(repo, 'schemas', agent);
+      for (const f of fs.readdirSync(dir).filter((x) => x.endsWith('.json'))) {
+        const doc = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
+        for (const key of Object.keys(doc.rationale ?? {})) {
+          const dot = key.indexOf('.');
+          const section = key.slice(0, dot);
+          const name = key.slice(dot + 1);
+          assert.ok(s[section] !== undefined, `${agent}/${f}: rationale names an unknown section ${section}`);
+          assert.ok(s[section][name] !== undefined, `${agent}/${f}: rationale explains ${key}, which no schema file decides`);
+        }
+      }
+    }
+
+    // An agent with no directory refuses and names itself, rather than
+    // loading empty and accepting everything.
+    assert.throws(
+      () => loadSchema('zz-no-such-agent'),
+      (err) => String(err.message).includes('zz-no-such-agent'),
+      'an agent with no schema loaded instead of refusing',
+    );
+  }],
+
+  ['F239', 'no agent shares a vocabulary entry with another, so no name can be mapped across harnesses', () => {
+    // THE fixture. deident never re-shapes a record: a Codex record goes out
+    // in Codex's shape, a Cursor record in Cursor's. The moment two agents
+    // share one vocabulary entry, a consumer's decision has been made for
+    // them and information has been compressed away. This exists so that a
+    // later reader who does not know why normalisation is forbidden cannot
+    // introduce it without a red fixture, and it asserts the property three
+    // ways: names collide and stay independent, loading is directory-scoped,
+    // and no cross-agent alias table exists in the source.
+    const agents = knownAgents();
+    const loaded = new Map(agents.map((a) => [a, loadSchema(a)]));
+
+    // 1. Same spelling, independent entries. These collisions are real and
+    // were decided separately from each harness's own records.
+    const collisions = [
+      ['recordTypes', 'user', ['claude-code', 'cursor', 'gemini-cli', 'opencode']],
+      ['recordTypes', 'assistant', ['claude-code', 'cursor', 'opencode']],
+      ['contentBlocks', 'text', ['claude-code', 'cursor', 'opencode']],
+      ['contentBlocks', 'reasoning', ['codex', 'opencode']],
+    ];
+    for (const [section, name, expected] of collisions) {
+      const holders = agents.filter((a) => loaded.get(a)[section][name] !== undefined).sort();
+      assert.deepEqual(holders, [...expected].sort(), `the agents deciding ${section}.${name} changed`);
+    }
+    // Codex reached `keep` for its own reasoning and opencode for its own; if
+    // one file ever sourced the other, they would stop being two decisions.
+    assert.notEqual(loaded.get('codex').contentBlocks, loaded.get('opencode').contentBlocks, 'two agents are sharing one contentBlocks object');
+
+    // 2. An agent's vocabulary comes only from its own directory. Every source
+    // path recorded on the load must sit under schemas/<that agent>/.
+    for (const agent of agents) {
+      for (const src of loaded.get(agent).sources) {
+        assert.ok(
+          path.dirname(src.file).endsWith(`${path.sep}${agent}`),
+          `${agent} loaded a decision from ${src.file}, which is another agent's directory`,
+        );
+      }
+    }
+
+    // 3. Isolation under a planted root: a name that exists only in agent B's
+    // directory must be invisible to agent A, whatever the loader does.
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'deident-agents-'));
+    fs.mkdirSync(path.join(root, 'alpha'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'beta'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'alpha', 'v.json'), JSON.stringify({ agent: 'alpha', recordTypes: { shared_name: 'keep', only_alpha: 'keep' } }));
+    fs.writeFileSync(path.join(root, 'beta', 'v.json'), JSON.stringify({ agent: 'beta', recordTypes: { shared_name: 'drop', only_beta: 'drop' } }));
+    const alpha = loadSchema('alpha', null, root);
+    const beta = loadSchema('beta', null, root);
+    assert.equal(alpha.recordTypes.only_beta, undefined, "alpha can see beta's vocabulary");
+    assert.equal(beta.recordTypes.only_alpha, undefined, "beta can see alpha's vocabulary");
+    // The same spelling with OPPOSITE decisions must load cleanly in both. If
+    // agents were ever unioned, this is the pair that would refuse as a
+    // contradiction, which is exactly the wrong outcome across harnesses.
+    assert.equal(alpha.recordTypes.shared_name, 'keep', 'a cross-agent name collision disturbed alpha');
+    assert.equal(beta.recordTypes.shared_name, 'drop', 'a cross-agent name collision disturbed beta');
+    fs.rmSync(root, { recursive: true, force: true });
+
+    // 4. No alias table in the source. A normalisation layer has to write the
+    // mapping down somewhere; these are the pairs it would be written as.
+    const repo = fileURLToPath(new URL('..', import.meta.url));
+    const src = fs.readdirSync(path.join(repo, 'src', 'retain'))
+      .filter((f) => f.endsWith('.mjs'))
+      .map((f) => fs.readFileSync(path.join(repo, 'src', 'retain', f), 'utf8'))
+      .join('\n');
+    for (const [a, b] of [['function_call', 'tool_use'], ['agent_message', 'assistant'], ['step-finish', 'turn_duration'], ['thoughts', 'thinking'], ['gemini', 'assistant']]) {
+      const near = new RegExp(`${a}[\\s\\S]{0,40}${b}|${b}[\\s\\S]{0,40}${a}`);
+      assert.ok(!near.test(src), `src/retain looks like it maps ${a} onto ${b}; deident does not re-shape records across harnesses`);
+    }
   }],
 
 ];

@@ -1,0 +1,36 @@
+{
+  "agent": "cursor",
+  "version": "2026-08",
+  "extractedFrom": "19 Cursor session transcripts, 1024 lines, SALT-NLP/SWE-chat",
+  "note": "Cursor writes true JSONL, one {role, message} per line, and nothing else: across all 1024 lines the only record key is `role` and the only message key is `content`. So `role` IS the record discriminator and there are exactly two of them, which makes this the smallest vocabulary of the four harnesses at four names total. Cursor has no attachment vocabulary and no system-subtype vocabulary, so those keys are absent rather than empty. The two block names happen to be spelled the way Claude Code spells two of its own; they were decided here from Cursor's own records, they mean what Cursor's records make them mean, and nothing maps between the two vocabularies. Cursor's `tool_use` in particular is NOT Claude Code's: it carries no result, and there is no result record anywhere in this format.",
+  "decisions": {
+    "recordTypes": {
+      "keep": "carried",
+      "drop": "never written"
+    },
+    "contentBlocks": {
+      "keep": "carried",
+      "drop": "never written"
+    }
+  },
+  "recordTypes": {
+    "user": "keep",
+    "assistant": "keep"
+  },
+  "contentBlocks": {
+    "text": "keep",
+    "tool_use": "keep"
+  },
+  "rationale": {
+    "recordTypes.user": "176 records, 2254482 bytes, which is 74 percent of the whole corpus by weight. Cursor's user turns are heavy because the harness inlines context into them: every user record is a single text block, and the wrappers measured inside those blocks were <user_query> 156, <manually_attached_skills> 61, <image_files> 36, <attached_files> 34, <workspace> 12, <cursor_commands> 11, <agent_transcripts> 3. <attached_files> in particular inlines whole file bodies under absolute paths. The record is kept because the user's actual question is in there, but a reader that keeps it verbatim ships the injected context too; stripping those spans is the reader's job, the way <system-reminder> spans are stripped on the Claude Code side.",
+    "recordTypes.assistant": "848 records, 798039 bytes. The agent's prose and its tool calls.",
+    "contentBlocks.text": "909 blocks, 2751435 bytes, split 733 assistant and 176 user. Every user record carries exactly one text block and no user record carries anything else, so user prose reaches deident only through this name.",
+    "contentBlocks.tool_use": "403 blocks, 255598 bytes, assistant only. The keys are exactly type, name and input, and nothing more: it was checked for a result field and there is none. Names measured: Read 117, StrReplace 93, TodoWrite 63, Shell 36, Grep 12, serena-find_symbol 12, Task 9. `input` carries absolute paths. Kept as the visible record of what the agent did, which is the same reason the corresponding call is kept elsewhere, reached independently here."
+  },
+  "findings": {
+    "noToolResults": "Why this file has no shape-only entry anywhere. Cursor's exported transcript contains no tool output at all: 403 tool calls and zero results, and no third block type exists to hold one. The tool-result problem docs/limits.md exists to answer does not arise on this harness, because the harness never wrote the payload. A reader must not infer from this file that results were dropped here; they were never present. This key is prose for a human; the loader reads only the four decision sections and ignores it."
+  },
+  "undecided": {
+    "turn_ended": "Reported in a trace-commons sample of Cursor and absent from all 19 files and all 1024 lines measured here. Deliberately left with no decision rather than guessed: deciding a name whose payload nobody has opened is exactly the guess the fail-closed rule exists to prevent, and the cost of leaving it out is one clear refusal naming the type on the first corpus that contains it, which is the behaviour that is wanted. An operator who hits it before deident ships a version can decide it in ~/.deident-private/schema-overlay.json. This key is prose for a human; the loader reads only the four decision sections and ignores it."
+  }
+}
