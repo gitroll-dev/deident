@@ -375,9 +375,26 @@ $ deident export
     14 occurrences of your own username or git identity are joined to
       letters or digits (yourname-prod) and were left alone by the same rule
 
-  → deident-export-2026-08-22.zip    14.2 MB
+  → <workdir>/send/deident-export-2026-08-22.zip    14.2 MB
+    Send this file. <workdir>/send holds nothing else, and nothing else here may be sent
+    <workdir>/WHAT-TO-SEND.txt    what each file is, and whether it may leave
     salt stays at ~/.deident-private/salt, do not share it, do not commit it
 ```
+
+The distinction is printed in the block that names the archive, because a layout
+the operator has to infer is the same failure as no layout at all. `--out` used
+to hold the archive and five files that must never be sent (`review.md`,
+`deident-candidates.txt`, `deident-triage.txt`, `export-map.txt` and the
+`--preview` diff) with nothing saying which was which. The author moved
+`export-map.txt` out by hand after being asked whether the directory was safe to
+send, and a reviewer opened one of the raw files, saw his own details intact and
+concluded the tool does nothing.
+
+So the archive is alone in `<out>/send/` and nothing else goes in. What may be
+sent is an **allowlist**, not a subtraction rule: an artifact written into `--out`
+lands outside `send/` and is un-sendable by default. `<out>/WHAT-TO-SEND.txt` is
+written from a listing of the directory rather than from the names the run
+intended, so every file it mentions is a file that is there.
 
 ### 6a. The declared list, printed back with what it did
 
@@ -880,7 +897,8 @@ seen yet, third-party names included, by design, and the tier-0 residual scan
 runs over it before it is written. Treat it the way you treat `review.md`: local
 only, never shared, never committed.
 
-The second: a SUCCESSFUL export writes `export-map.txt` beside the zip, one
+The second: a SUCCESSFUL export writes `export-map.txt` into `--out`, outside
+`send/` and so never beside the zip, one
 `<real session id>  <archive entry>` line per exported session. privacy-tiers §4
 level 3 is the last look, and a last look cannot act without attribution: every
 id inside the archive has already been rewritten, so nothing on the machine

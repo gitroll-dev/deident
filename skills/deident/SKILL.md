@@ -55,7 +55,9 @@ Everything the tool remembers is in one directory, `~/.deident-private`, which
   `review --entity`, below.
 
 Everything else (`review.md`, the candidates file, the archive, `export-map.txt`)
-lives in `--out` and belongs to one run.
+lives in `--out` and belongs to one run. Inside `--out`, the archive is alone in
+`send/` and everything else is outside it: `send/` holds what may be sent, the
+top level holds what may not, and `WHAT-TO-SEND.txt` says so file by file.
 
 **To run as if for the first time**, give every command in the flow a fresh
 `--salt-dir` and a fresh `--out`. That discards the pseudonyms, the declared
@@ -543,7 +545,7 @@ subagent call.
 the corpus:
 
 ```
-head -3 <workdir>/export-map.txt          # pick three entry names
+head -3 <workdir>/export-map.txt          # pick three entry names (outside send/)
 node <repo>/deident.js review --session <id> --salt-dir <same>
 ```
 
@@ -593,10 +595,11 @@ The archive is a file. The tool does not upload it and has no receiver.
 Tell the person: the file, its size, the session count, and what was held back.
 Then let them send it. A privacy decision is theirs to execute, not yours.
 
-`export-map.txt` is written beside the archive and maps each original session id
-to its entry inside. It is local, it is not in the archive, and it must not be
-sent: it is the only thing on the machine that says which entry is which
-session.
+`export-map.txt` is written at the top level of `--out`, outside `send/`, and
+maps each original session id to its entry inside the archive. It is local, it is
+not in the archive, and it must not be sent: it is the only thing on the machine
+that says which entry is which session. The archive itself is `send/deident-
+export-<date>.zip`, and it is the only file in that directory.
 
 ## Things that are not bugs
 

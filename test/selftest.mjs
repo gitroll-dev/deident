@@ -37,7 +37,6 @@ import { probeCounts, probeOutliers } from '../src/entities/probe.mjs';
 import { substituteRecord } from '../src/substitute/walker.mjs';
 import { checkSubstitution, checkSemanticPass, semanticRefusal, coverageRefusal, unverifiedRemainder, residueRefusal } from '../src/verify/checks.mjs';
 import { checkDeclaredValues } from '../src/verify/declared.mjs';
-import { verifyArchive } from '../src/verify/archive.mjs';
 import { scanForSecrets, secretScanLine, SCANNER } from '../src/verify/secretscan.mjs';
 import { residualScan, startsInsideEscape, jsonEscaped } from '../src/verify/residual.mjs';
 import { distillToolResult, retainToolUseResult } from '../src/retain/toolresult.mjs';
@@ -89,7 +88,7 @@ import {
   loadOrCreateSalt,
   defaultSaltDir,
 } from '../src/entities/pseudonym.mjs';
-import { buildZip, readZip, readZipFile, writeZip, MAX_ENTRIES } from '../src/output/zip.mjs';
+import { SEND_DIRNAME, MANIFEST_FILENAME, sendDir, manifestPath } from '../src/output/sendable.mjs';
 import { renderPreview } from '../src/output/preview.mjs';
 import {
   parseReview,
@@ -107,6 +106,8 @@ import { parseCliArgs } from '../src/cli/args.mjs';
 import { checkRuntime, REQUIRED_NODE } from '../src/cli/runtime.mjs';
 import { serializeSessions, resolveOutDir, sanitizeEntryName, stripMintedSpellings, extractProseBySession, stripStructuralSpellings, ENTRY_ROOT } from '../src/pipeline.mjs';
 import { RefusalError, ReadError, UsageError } from '../src/cli/errors.mjs';
+import { verifyArchive } from '../src/verify/archive.mjs';
+import { buildZip, readZip, readZipFile, writeZip, MAX_ENTRIES } from '../src/output/zip.mjs';
 
 // Both sides of every fold pair must be Han and nothing else. A pair that
 // slipped in a lookalike from another block would fold text nobody asked about.
@@ -592,6 +593,28 @@ function primeSemanticPass(root, out, saltDir, env = null, extra = []) {
   const candidateBytes = fs.existsSync(file) ? fs.statSync(file).size : 0;
   fs.rmSync(file, { force: true });
   return { ...r, candidateBytes };
+}
+
+/**
+ * The archives an export left behind, full paths, in the one directory they may
+ * be in.
+ *
+ * Every caller used to read them straight out of `--out`. Reading them through
+ * one helper is what makes F245's "the sendable location holds the zip and
+ * nothing else" a claim about the same directory the rest of the suite opens,
+ * rather than two independent guesses at where the archive lives.
+ */
+function archivesIn(out) {
+  const dir = sendDir(out);
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir).filter((f) => f.endsWith('.zip')).map((f) => path.join(dir, f));
+}
+
+/** The single archive an export just wrote. Asserts there is exactly one. */
+function oneArchive(out) {
+  const found = archivesIn(out);
+  assert.equal(found.length, 1, `expected exactly one archive under ${sendDir(out)}: ${found.join(', ')}`);
+  return found[0];
 }
 
 /** One more user turn appended to a session that already exists, in place. */
@@ -2268,9 +2291,7 @@ const FIXTURES = [
     ], CORPUS_USER_ENV);
     assert.equal(exported.code, 0, exported.out);
 
-    const zips = fs.readdirSync(out).filter((f) => f.endsWith('.zip'));
-    assert.equal(zips.length, 1, 'exactly one archive');
-    const entries = readZipFile(path.join(out, zips[0]));
+    const entries = readZipFile(oneArchive(out));
     const bytes = entries.map((e) => `${e.name}${NL}${e.data}`).join(NL);
 
     // Content authored inside a deny-listed directory, replayed by a cwd-less
@@ -2530,7 +2551,7 @@ const FIXTURES = [
 
     // Now make the tier memo unwritable. The export must still succeed, warn,
     // and leave the zip in place.
-    fs.rmSync(path.join(out, fs.readdirSync(out).find((f) => f.endsWith('.zip'))));
+    fs.rmSync(oneArchive(out));
     // Loadable so the run still reaches the save, unwritable so only the SAVE
     // fails. makeUnwritable verifies that rather than trusting the permission
     // bit, which root does not honour.
@@ -2540,7 +2561,7 @@ const FIXTURES = [
     const blocked = runCli(args);
     assert.equal(blocked.code, 0, `a lost tier memo is not a failed export: ${blocked.out}`);
     assert.match(blocked.out, /could not remember your tier decisions/);
-    assert.equal(fs.readdirSync(out).filter((f) => f.endsWith('.zip')).length, 1, 'the archive stays');
+    assert.equal(archivesIn(out).length, 1, 'the archive stays');
     assert.doesNotMatch(blocked.out, /Nothing was written/, 'the report must not contradict the archive on disk');
     restoreMemo();
 
@@ -3079,7 +3100,7 @@ const FIXTURES = [
     assert.equal(exported.code, 1, exported.out);
     assert.match(exported.out, /already contains? a token in the pseudonym namespace/);
     assert.match(exported.out, /--namespace X/);
-    assert.equal(fs.readdirSync(out).filter((f) => f.endsWith('.zip')).length, 0, 'nothing may be written');
+    assert.equal(archivesIn(out).length, 0, 'nothing may be written');
   }],
 
   // F81, four classes shipped verbatim while the manifest asserted they were
@@ -3354,7 +3375,7 @@ const FIXTURES = [
       '--entities', path.join(root, 'ents.json'),
     ]);
     assert.equal(exported.code, 0, exported.out);
-    const bytes = readZipFile(path.join(out, fs.readdirSync(out).find((f) => f.endsWith('.zip'))))
+    const bytes = readZipFile(oneArchive(out))
       .map((e) => e.data)
       .join(NL);
 
@@ -4008,9 +4029,7 @@ const FIXTURES = [
 
     // And it really opened the file: the row counts the entries the READER
     // found, a number only the written archive can supply.
-    const zipName = fs.readdirSync(out).find((f) => f.endsWith('.zip'));
-    assert.ok(zipName, 'an archive was written');
-    const entries = readZipFile(path.join(out, zipName));
+    const entries = readZipFile(oneArchive(out));
     assert.ok(entries.length > 0);
     assert.match(exported.out, new RegExp(`${entries.length} entries read back`));
   }],
@@ -5439,9 +5458,7 @@ const FIXTURES = [
 
     // Where the dictionary must not be.
     assert.ok(!fs.existsSync(path.join(out, DICTIONARY_FILENAME)), 'the dictionary reached the output directory');
-    const zips = fs.readdirSync(out).filter((f) => f.endsWith('.zip'));
-    assert.equal(zips.length, 1, 'exactly one archive');
-    const entries = readZipFile(path.join(out, zips[0]));
+    const entries = readZipFile(oneArchive(out));
     assert.ok(!entries.some((e) => e.name.includes(DICTIONARY_FILENAME)), 'the dictionary is an archive entry');
     const bytes = entries.map((e) => `${e.name}${NL}${e.data}`).join(NL);
     assert.ok(!bytes.includes('Nora Lund'), 'the remembered spelling must not be in the archive');
@@ -5542,7 +5559,7 @@ const FIXTURES = [
     assert.equal(refused.code, 1, `an unread session must refuse the export: ${refused.out}`);
     assert.match(refused.out, /semantic pass/, 'the refusal names what has not happened');
     assert.ok(refused.out.includes(second), `the refusal must name the session: ${refused.out}`);
-    assert.ok(!fs.readdirSync(out).some((f) => f.endsWith('.zip') && fs.statSync(path.join(out, f)).mtimeMs > Date.now()), 'no new archive');
+    assert.ok(!archivesIn(out).some((f) => fs.statSync(f).mtimeMs > Date.now()), 'no new archive');
 
     // And only that session goes back in front of a reader. This is the whole
     // economic argument: on the live corpus the first read is 915 KB of prose
@@ -5642,7 +5659,7 @@ const FIXTURES = [
 
     // A uuid deident minted, taken from its own output. The run is
     // deterministic (cli-ux §11), so the same value is minted again below.
-    const entries = readZipFile(path.join(out, fs.readdirSync(out).find((f) => f.endsWith('.zip'))));
+    const entries = readZipFile(oneArchive(out));
     const minted = entries.map((e) => e.data).join('').match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/);
     assert.ok(minted !== null, 'the archive should carry rewritten uuids to take one from');
 
@@ -7054,17 +7071,20 @@ const FIXTURES = [
       'the index does not carry the real spelling, so it answers nothing',
     );
 
-    for (const name of fs.readdirSync(out)) {
-      assert.notEqual(name, indexNames[0], 'the occurrence index reached the output directory');
-      if (name.endsWith('.zip')) continue;
-      assert.ok(
-        !fs.readFileSync(path.join(out, name), 'utf8').includes(NAME),
-        `the real spelling reached ${name} in the output directory`,
-      );
+    // Both halves of the output directory, not just the top level: the archive
+    // now sits in a subdirectory and a walk that stopped at `out` would stop
+    // checking the one place a leak matters most.
+    for (const dir of [out, sendDir(out)]) {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        assert.notEqual(e.name, indexNames[0], 'the occurrence index reached the output directory');
+        if (!e.isFile() || e.name.endsWith('.zip')) continue;
+        assert.ok(
+          !fs.readFileSync(path.join(dir, e.name), 'utf8').includes(NAME),
+          `the real spelling reached ${e.name} in the output directory`,
+        );
+      }
     }
-    const zips = fs.readdirSync(out).filter((f) => f.endsWith('.zip'));
-    assert.equal(zips.length, 1, 'exactly one archive');
-    const entries = readZipFile(path.join(out, zips[0]));
+    const entries = readZipFile(oneArchive(out));
     assert.ok(!entries.some((e) => e.name.includes(indexNames[0])), 'the occurrence index is an archive entry');
     const bytes = entries.map((e) => `${e.name}${NL}${e.data}`).join(NL);
     assert.ok(!bytes.includes(NAME), 'the real spelling the index maps reached the archive');
@@ -7260,8 +7280,7 @@ const FIXTURES = [
     ], CORPUS_USER_ENV);
     assert.equal(exported.code, 0, exported.out);
 
-    const zips = fs.readdirSync(out).filter((f) => f.endsWith('.zip'));
-    const entries = readZipFile(path.join(out, zips[0]));
+    const entries = readZipFile(oneArchive(out));
     const bytes = entries.map((e) => `${e.name}${NL}${e.data}`).join(NL);
     for (const value of DECLARED_VALUES) {
       assert.ok(!bytes.includes(value), `a declared value reached the archive: ${value}`);
@@ -7269,7 +7288,7 @@ const FIXTURES = [
 
     // The list is as private as the salt. It must not be copied into the
     // archive, and it must not be copied into --out either: --out is the
-    // directory a person hands around, and review.md already tells them so.
+    // directory the person is working in, and only its send/ half may leave.
     assert.ok(!entries.some((e) => e.name.includes('known-values')), 'the list was packed into the archive');
     assert.ok(!bytes.includes('known-values'), 'the archive names the list');
     assert.ok(!fs.existsSync(path.join(out, 'known-values.json')), 'the list was copied into --out');
@@ -9067,8 +9086,7 @@ const FIXTURES = [
       '--entities', path.join(root, 'ents.json'),
     ]);
     assert.equal(done.code, 0, done.out);
-    const zipName = fs.readdirSync(out).find((f) => f.endsWith('.zip'));
-    const body = readZipFile(path.join(out, zipName))
+    const body = readZipFile(oneArchive(out))
       .filter((e) => e.name.endsWith('.jsonl'))
       .map((e) => e.data)
       .join(NL);
@@ -10580,14 +10598,14 @@ const FIXTURES = [
     // Named in the message, because the whole point of this fixture is which
     // of the two runs went wrong, and the CLI's own output does not say.
     assert.equal(bare.code, 0, `the run with no --agent did not export: ${bare.out}`);
-    const zipName = fs.readdirSync(out).filter((f) => f.endsWith('.zip'));
+    const zipName = archivesIn(out);
     assert.equal(zipName.length, 1, 'exactly one archive');
-    const first = fs.readFileSync(path.join(out, zipName[0]));
+    const first = fs.readFileSync(zipName[0]);
 
     const named = runCli(args(['--agent', 'claude-code']), CORPUS_USER_ENV);
     assert.equal(named.code, 0, `the run naming --agent claude-code did not export: ${named.out}`);
-    assert.deepEqual(fs.readdirSync(out).filter((f) => f.endsWith('.zip')), zipName, 'the archive was named differently');
-    const second = fs.readFileSync(path.join(out, zipName[0]));
+    assert.deepEqual(archivesIn(out), zipName, 'the archive was named differently');
+    const second = fs.readFileSync(zipName[0]);
 
     assert.equal(Buffer.compare(first, second), 0, 'naming the default agent changed the archive');
     assert.ok(first.length > 0, 'both runs produced an empty archive, which would compare equal for the wrong reason');
@@ -10676,7 +10694,191 @@ const FIXTURES = [
     }
   }],
 
-  ['F245', 'verify reports what is IN the archive, and says so when it cannot answer', () => {
+  // F245 to F248. `--out` held the archive a person sends and five files that
+  // must never be sent, with nothing in the directory saying which was which:
+  // review.md ("raw identity on purpose"), deident-candidates.txt (the corpus's
+  // prose, un-redacted for names), deident-triage.txt (each session's first
+  // prompt, raw), export-map.txt (real session ids against archive entries) and
+  // the --preview diff (the original text beside the redacted text).
+  //
+  // Both halves failed in the field on 2026-08-27. The author moved
+  // export-map.txt to the private directory BY HAND after being asked whether
+  // the output directory was safe to send. And a reviewer ran the tool, opened
+  // a file in the output directory, saw his own details intact and concluded
+  // the tool does nothing: two of the six produce exactly that impression while
+  // every gate is green, which is the point, the directory made the wrong
+  // conclusion the easy one.
+  //
+  // The archive moved into `send/` and nothing else did, so what may be sent is
+  // an ALLOWLIST rather than a subtraction rule: an artifact written with
+  // path.join(outDir, ...) lands outside it and is un-sendable by default,
+  // which is the direction this bug needed to be written in.
+  ['F245', 'the sendable directory holds the archive and nothing else', () => {
+    const root = tmpdir();
+    const out = path.join(root, 'out');
+    const saltDir = path.join(root, 'salt');
+    writeCorpus(root);
+
+    assert.equal(runCli(['scan', '--root', root, '--out', out, '--salt-dir', saltDir], CORPUS_USER_ENV).code, 0);
+    setTier(path.join(out, 'review.md'), 'alpha', 'redact');
+    // Every other artifact this tool writes into --out, so the directory under
+    // test is the crowded one the failure happened in rather than a clean one.
+    assert.equal(runCli(['triage', '--root', root, '--out', out, '--salt-dir', saltDir], CORPUS_USER_ENV).code, 0);
+    primeSemanticPass(root, out, saltDir, CORPUS_USER_ENV);
+    const args = ['--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir,
+      '--entities', path.join(root, 'ents.json')];
+    assert.equal(runCli(['export', '--preview', ...args], CORPUS_USER_ENV).code, 0);
+    const exported = runCli(['export', ...args], CORPUS_USER_ENV);
+    assert.equal(exported.code, 0, exported.out);
+
+    // Read off the directory, not off the constants: the claim is about what a
+    // person opening the folder finds, and only a listing knows that.
+    const inSend = fs.readdirSync(sendDir(out), { withFileTypes: true });
+    assert.deepEqual(
+      inSend.map((e) => e.name).sort(),
+      [path.basename(oneArchive(out))],
+      `the sendable directory holds something other than the archive: ${inSend.map((e) => e.name).join(', ')}`,
+    );
+    assert.ok(inSend.every((e) => e.isFile()), 'the sendable directory holds a subdirectory');
+    // And the archive is nowhere else, or "send this one" has two answers.
+    assert.deepEqual(
+      fs.readdirSync(out).filter((f) => f.endsWith('.zip')),
+      [],
+      'an archive is sitting at the top level as well',
+    );
+  }],
+
+  ['F246', 'every un-sendable artifact stays outside the sendable directory, and the label names it', () => {
+    const root = tmpdir();
+    const out = path.join(root, 'out');
+    const saltDir = path.join(root, 'salt');
+    writeCorpus(root);
+
+    // Each artifact is asserted where the run that writes it puts it, so this
+    // fixture cannot agree with a constant that moved without its writer.
+    assert.equal(runCli(['scan', '--root', root, '--out', out, '--salt-dir', saltDir], CORPUS_USER_ENV).code, 0);
+    assert.ok(fs.existsSync(path.join(out, 'review.md')), 'scan wrote review.md somewhere else');
+    setTier(path.join(out, 'review.md'), 'alpha', 'redact');
+
+    assert.equal(runCli(['triage', '--root', root, '--out', out, '--salt-dir', saltDir], CORPUS_USER_ENV).code, 0);
+    assert.ok(fs.existsSync(path.join(out, 'deident-triage.txt')), 'triage wrote its file somewhere else');
+
+    // The candidates file exists only on the refusal path, so it is checked on
+    // the refusal rather than after a success that never writes it.
+    const refused = runCli(['export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir], CORPUS_USER_ENV);
+    assert.equal(refused.code, 1, refused.out);
+    assert.ok(fs.existsSync(path.join(out, 'deident-candidates.txt')), 'the candidates file was written somewhere else');
+    assert.deepEqual(archivesIn(out), [], 'a refusal put something in the sendable directory');
+    fs.rmSync(path.join(out, 'deident-candidates.txt'));
+
+    const args = ['--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir,
+      '--entities', path.join(root, 'ents.json')];
+    assert.equal(runCli(['export', '--preview', ...args], CORPUS_USER_ENV).code, 0);
+    assert.equal(fs.readdirSync(out).filter((f) => f.endsWith('.diff')).length, 1, 'the preview diff was written somewhere else');
+
+    const exported = runCli(['export', ...args], CORPUS_USER_ENV);
+    assert.equal(exported.code, 0, exported.out);
+    assert.ok(fs.existsSync(path.join(out, 'export-map.txt')), 'the export map was written somewhere else');
+
+    // Nothing but the archive crossed into the sendable directory.
+    assert.deepEqual(
+      fs.readdirSync(sendDir(out)).sort(),
+      [path.basename(oneArchive(out))],
+      'an un-sendable artifact reached the sendable directory',
+    );
+
+    // The label is the only file whose job is to be read by a person deciding
+    // what to send, so it has to name all of them, and say which side each is
+    // on in words rather than by position.
+    const label = fs.readFileSync(manifestPath(out), 'utf8');
+    for (const name of fs.readdirSync(out)) {
+      if (name === MANIFEST_FILENAME || name === SEND_DIRNAME) continue;
+      assert.ok(label.includes(name), `the label does not name ${name}`);
+    }
+    assert.ok(label.includes(path.basename(oneArchive(out))), 'the label does not name the archive');
+    assert.match(label, /SEND/, 'the label does not say what may be sent');
+    assert.match(label, /DO NOT SEND/, 'the label does not say what may not be sent');
+  }],
+
+  ['F247', 'the block that names the archive says where it may be sent from, and every path printed exists', () => {
+    const root = tmpdir();
+    const out = path.join(root, 'out');
+    const saltDir = path.join(root, 'salt');
+    writeCorpus(root);
+    // The default salt directory is pointed somewhere empty, so the run does
+    // not print the "copy your denied.json from <home>" remedy. That remedy
+    // names a file that deliberately does not exist yet, and the last
+    // assertion here is that every path printed DOES exist.
+    const env = { ...CORPUS_USER_ENV, DEIDENT_SALT_DIR: path.join(root, 'nothing-here') };
+
+    assert.equal(runCli(['scan', '--root', root, '--out', out, '--salt-dir', saltDir], env).code, 0);
+    setTier(path.join(out, 'review.md'), 'alpha', 'redact');
+    primeSemanticPass(root, out, saltDir, env);
+    const exported = runCli([
+      'export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir,
+      '--entities', path.join(root, 'ents.json'),
+    ], env);
+    assert.equal(exported.code, 0, exported.out);
+
+    // The block that names the archive names the distinction too, or the
+    // operator is left to infer the layout, which is the same failure in a new
+    // shape. Found by the archive path rather than by a decoration character.
+    const block = exported.out.slice(exported.out.lastIndexOf(oneArchive(out)));
+    assert.ok(block.includes(sendDir(out)), `the block naming the archive does not say where the sendable directory is:${NL}${block}`);
+    assert.ok(block.includes(manifestPath(out)), `the block naming the archive does not point at the label:${NL}${block}`);
+
+    // And every path in the report is a path that is there when the run ends.
+    // A remedy naming a file that moved is worse than no remedy.
+    const printed = [...new Set(
+      exported.out
+        .split(/\s+/)
+        .map((t) => t.replace(/^["']+/, '').replace(/["'.,:]+$/, ''))
+        .filter((t) => t.startsWith(root) && t.length > root.length),
+    )];
+    assert.ok(printed.length >= 3, `the report printed almost no paths, so this proves nothing: ${printed.join(' | ')}`);
+    const missing = printed.filter((t) => !fs.existsSync(t));
+    assert.deepEqual(missing, [], `the export printed paths that are not on disk: ${missing.join(' | ')}`);
+  }],
+
+  ['F248', 'a second export keeps the layout, still reads review.md, and does not re-offer what was read', () => {
+    const root = tmpdir();
+    const out = path.join(root, 'out');
+    const saltDir = path.join(root, 'salt');
+    writeCorpus(root);
+
+    assert.equal(runCli(['scan', '--root', root, '--out', out, '--salt-dir', saltDir], CORPUS_USER_ENV).code, 0);
+    setTier(path.join(out, 'review.md'), 'alpha', 'redact');
+    primeSemanticPass(root, out, saltDir, CORPUS_USER_ENV);
+
+    const first = runCli([
+      'export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir,
+      '--entities', path.join(root, 'ents.json'),
+    ], CORPUS_USER_ENV);
+    assert.equal(first.code, 0, first.out);
+    const firstArchive = path.basename(oneArchive(out));
+
+    // No --entities and no second scan: the tier typed into review.md and the
+    // sessions already put in front of a reader both have to survive. A layout
+    // change that moved a file without moving its reader lands here as "the
+    // semantic pass has not run" or as an unclassified workspace.
+    const second = runCli(['export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir], CORPUS_USER_ENV);
+    assert.equal(second.code, 0, `the second run should need neither a tier nor an entity list: ${second.out}`);
+    assert.doesNotMatch(second.out, /Refusing to export/, 'the second run refused where the first succeeded');
+    assert.doesNotMatch(second.out, /semantic pass has not run/, 'the second run re-offered the sessions it had already read');
+    assert.ok(
+      !fs.existsSync(path.join(out, 'deident-candidates.txt')),
+      'the second run wrote the prose out again, so nothing was remembered',
+    );
+    assert.doesNotMatch(second.out, /unclassified/, 'the second run lost the tier typed into review.md');
+
+    // Same shape the second time. cli-ux 11's idempotence is about the bytes;
+    // this is about the directory, which a second run could just as easily
+    // scatter.
+    assert.deepEqual(fs.readdirSync(sendDir(out)).sort(), [firstArchive], 'the second export changed the layout');
+    assert.ok(fs.existsSync(manifestPath(out)), 'the second export left no label');
+  }],
+
+  ['F249', 'verify reports what is IN the archive, and says so when it cannot answer', () => {
     // Every other check answers "did the substitution come out right", which is
     // a question about the pipeline and answerable only by the pipeline. Both
     // real leaks in this tool's history were found the other way: somebody
@@ -10722,7 +10924,7 @@ const FIXTURES = [
     assert.equal(notion.count, 1);
   }],
 
-  ['F246', 'verify is read-only and needs an archive, and no other command takes a path', () => {
+  ['F250', 'verify is read-only and needs an archive, and no other command takes a path', () => {
     // It runs on the file the operator is about to send, so it must not be able
     // to change it, and it must not be reachable by accident from a command
     // that was given a directory.

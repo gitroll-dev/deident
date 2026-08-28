@@ -88,6 +88,7 @@ import { checkDeclaredValues } from './verify/declared.mjs';
 import { verifyArchive } from './verify/archive.mjs';
 import { scanForSecrets } from './verify/secretscan.mjs';
 import { writeZip, readZipFile, safeUnlink } from './output/zip.mjs';
+import { sendDir, manifestPath, writeSendManifest } from './output/sendable.mjs';
 import { writePreview } from './output/preview.mjs';
 import { EXAMPLES_PER_REPORT, MIN_REPLAY_MATCH_CHARS } from './retain/constants.mjs';
 import { loadUserDeny, setUserDeny, missingDenyWarning } from './policy/userdeny.mjs';
@@ -526,7 +527,11 @@ function runSessionQuery(id, saltDir) {
         'A session held back at the review step is not in the archive, so it cannot be printed from one.',
       ],
       remedies: [
-        { label: 'See which sessions are in the archive', command: `read export-map.txt beside the zip` },
+        // Not "beside the zip": the zip is in <out>/send and the map is not,
+        // which is the whole point of the split. Naming the directory rather
+        // than deriving a path keeps this true without this refusal having to
+        // know the layout.
+        { label: 'See which sessions are in the archive', command: `read export-map.txt in the directory you exported into` },
         { label: 'Or find the session id from an entity', command: 'deident review --entity <TOKEN>' },
       ],
     });
@@ -1321,11 +1326,21 @@ export async function runExport(flags, env) {
       path.join(outDir, `deident-preview-${today()}.diff`),
     );
     rememberEntities(saltDir, dictionary, minted.entities, rewriteUuid.minted);
-    report.renderWrote(written.path, written.bytes, path.join(saltDir, 'salt'));
+    // A preview run writes no archive, so the label it leaves says the whole
+    // directory is un-sendable. Written before renderWrote, so the path the
+    // terminal points at exists by the time it is printed.
+    const label = writeSendManifest(outDir, nowStamp());
+    report.renderWrote(written.path, written.bytes, path.join(saltDir, 'salt'), {
+      sendDir: null,
+      manifestPath: label.path,
+    });
     return 0;
   }
 
-  const zipPath = path.join(outDir, `deident-export-${today()}.zip`);
+  // The archive is the ONLY file a person may send, so it is the only file in
+  // this directory. Everything else deident writes stays at the top level and
+  // is un-sendable by construction rather than by a rule anyone has to know.
+  const zipPath = path.join(sendDir(outDir), `deident-export-${today()}.zip`);
   const mapPath = path.join(outDir, EXPORT_MAP_FILENAME);
   try {
     const written = writeZip(serialized.entries, zipPath);
@@ -1375,10 +1390,10 @@ export async function runExport(flags, env) {
     // pseudonyms to real names, so it is not a re-identification key for the
     // data that left.
     writeExportMap(serialized.entries, mapPath);
-    // Beside the salt, not beside the zip. It carries pseudonym -> real
-    // spelling AND real session id, which is strictly more than export-map.txt,
-    // so the output directory is the one place it must never be: that is the
-    // directory a person zips up and sends.
+    // Beside the salt, not in the output directory at all. It carries
+    // pseudonym -> real spelling AND real session id, which is strictly more
+    // than export-map.txt, so it stays out of the directory the person is
+    // working in and off the send/ side of it twice over.
     //
     // Written here, after the on-disk residue scan, so an index can never
     // describe an archive that was refused and removed.
@@ -1395,13 +1410,21 @@ export async function runExport(flags, env) {
     // After the archive is on disk, so a run that refused at the on-disk scan
     // does not record identities against an export that never happened.
     rememberEntities(saltDir, dictionary, minted.entities, rewriteUuid.minted);
-    report.renderWrote(written.path, written.bytes, path.join(saltDir, 'salt'));
+    // Last, because it is a listing of the directory rather than a list of the
+    // names this run intended: a name it prints is a name that is on disk.
+    const label = writeSendManifest(outDir, nowStamp());
+    report.renderWrote(written.path, written.bytes, path.join(saltDir, 'salt'), {
+      sendDir: sendDir(outDir),
+      manifestPath: label.path,
+    });
   } catch (err) {
-    // Both artifacts, not just the zip. The map was written INSIDE this try
-    // and after writeZip, so a throw between them removed the zip and left a
-    // map pointing at a file that no longer exists (cli-ux §10).
+    // All three artifacts, not just the zip. The map was written INSIDE this
+    // try and after writeZip, so a throw between them removed the zip and left
+    // a map pointing at a file that no longer exists (cli-ux §10). The label
+    // describes the same run and would outlive it the same way.
     safeUnlink(zipPath);
     safeUnlink(mapPath);
+    safeUnlink(manifestPath(outDir));
     throw err;
   }
   return 0;

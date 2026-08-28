@@ -591,9 +591,29 @@ export function renderManifest(m) {
   say('');
 }
 
-export function renderWrote(path, bytes, saltPath) {
-  if (machine !== null) { machineAdd({ wrote: { path, bytes } }); return; }
+/**
+ * The file that was written, and whether it may be sent.
+ *
+ * The distinction is printed HERE, in the same block that names the artifact,
+ * because a layout the operator has to infer is the same failure as no layout
+ * at all. The output directory used to hold the archive and five files full of
+ * raw identity with nothing saying which was which, and a reviewer opened one
+ * of the five, saw his own details and concluded the tool does nothing.
+ *
+ * `sending.sendDir` is null on `--preview`, where the artifact written is the
+ * original text beside the redacted text and nothing in the directory may
+ * leave. Passed in rather than inferred: "no send directory" must not be the
+ * same thing as "forgot to say".
+ */
+export function renderWrote(path, bytes, saltPath, sending = null) {
+  if (machine !== null) { machineAdd({ wrote: { path, bytes, sending } }); return; }
   say(`  → ${path}    ${humanBytes(bytes)}`);
+  if (sending !== null && sending.sendDir !== null) {
+    say(`    Send this file. ${sending.sendDir} holds nothing else, and nothing else here may be sent`);
+  } else if (sending !== null) {
+    say('    Not for sending: no archive was written, and every file here carries raw identity');
+  }
+  if (sending !== null) say(`    ${sending.manifestPath}    what each file is, and whether it may leave`);
   say(`    salt stays at ${saltPath}. Do not share it, do not commit it`);
   say('');
 }
