@@ -513,7 +513,7 @@ ordinary word for meeting"), not the rows.
   are still in the archive, joined to letters or digits (`yourname-prod`,
   `kv-yourname01234`). The substituter refused these on purpose: the word
   boundary rule cannot tell them from a name sitting inside an ordinary word,
-  and BRIEF §4.5 requires that non-match. **Not a bug and not a failed check.**
+  and BRIEF Â§4.5 requires that non-match. **Not a bug and not a failed check.**
   It is a decision to hand back. Each row carries a count and an excerpt. Say so
   plainly: renaming the resource before exporting is one fix, declaring the
   glued spelling itself in the entity list is another, and accepting it is a

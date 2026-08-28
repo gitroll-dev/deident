@@ -17,8 +17,9 @@ import * as report from './cli/report.mjs';
 import { RefusalError, UsageError, osErrorLine } from './cli/errors.mjs';
 import { estimateTokens, tokenCost } from './cli/tokens.mjs';
 import { resolveCorpus, corpusDateRange } from './corpus/root.mjs';
-import { readSession, roundTripRefusal, nestingError } from './corpus/reader.mjs';
-import { resolveLineCwd, cwdChangeFrom } from './corpus/cwdtrack.mjs';
+import { roundTripRefusal, nestingError } from './corpus/reader.mjs';
+import { cwdChangeFrom } from './corpus/cwdtrack.mjs';
+import { noCwdRefusal } from './corpus/agents.mjs';
 import {
   classifyWorkspaces,
   summarizeTiers,
@@ -233,7 +234,8 @@ function checkOutDir(resolved) {
  * command at all.
  */
 export async function runTypes(flags, env) {
-  const corpus = resolveCorpus(env, flags.root);
+  const corpus = resolveCorpus(env, flags.root, flags.agent);
+  const agent = corpus.agent;
   const table = RETENTION_TABLE;
 
   const known = {
@@ -252,6 +254,7 @@ export async function runTypes(flags, env) {
 
   let unreadable = 0;
   let read = 0;
+  let recordsSeen = 0;
   for (const entry of corpus.files) {
     // corpus.files holds file OBJECTS, not paths. Reading the object coerced
     // every path to "[object Object]", so every read threw and the command
@@ -259,14 +262,21 @@ export async function runTypes(flags, env) {
     // a green built from zero measurements. The read counter below is what
     // makes that shape impossible to print again.
     const file = entry.path;
-    let text;
-    try { text = fs.readFileSync(file, 'utf8'); read += 1; } catch { unreadable += 1; continue; }
-    const lines = text.split('\n');
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i].trim().length === 0) continue;
-      let rec;
-      try { rec = JSON.parse(lines[i]); } catch { continue; }
+    // Through the agent's reader, not a second line-splitter of its own. Two of
+    // the five harnesses deident reads write ONE JSON document per file, so a
+    // split on newline finds no records in them and this command would print
+    // "no unknown types" over a corpus it had parsed nothing of, the same shape
+    // as the `[object Object]` bug above, arriving a different way.
+    let records;
+    try {
+      records = agent.readSession(file, { skipUnreadable: true, keepRaw: false }).records;
+      read += 1;
+    } catch { unreadable += 1; continue; }
+    recordsSeen += records.length;
+    for (const record of records) {
+      const rec = record.value;
       if (rec === null || typeof rec !== 'object') continue;
+      const i = record.index - 1;
       note('topLevel', rec.type, file, i + 1);
       if (rec.type === 'attachment' && rec.attachment !== null && typeof rec.attachment === 'object') {
         note('attachment', rec.attachment.type, file, i + 1);
@@ -298,7 +308,14 @@ export async function runTypes(flags, env) {
   // A corpus that yielded no shapes at all did not pass; it was not measured.
   // Reporting "every shape has a decision" from zero observations is the
   // failure this refusal exists to prevent.
-  if (read > 0 && totalSeen === 0) {
+  //
+  // The test is on RECORDS, not on shapes. It used to be on shapes, and the
+  // sentence it printed was "Every file parsed to nothing" -- which became
+  // false the moment a second harness was read: opencode's records are
+  // `{info, parts}` and carry no `type` key anywhere, so three files parsed to
+  // 27 records and the refusal reported them as unparsed and told the operator
+  // to file a bug against deident. The two states are different and now say so.
+  if (read > 0 && recordsSeen === 0) {
     throw new RefusalError(`read ${read} session files and found no records in any of them`, {
       why: [
         'Every file parsed to nothing, so this command measured no shapes at all.',
@@ -306,6 +323,23 @@ export async function runTypes(flags, env) {
       ],
       remedies: [{ label: 'Report this', command: 'file an issue against deident' }],
     });
+  }
+  if (recordsSeen > 0 && totalSeen === 0) {
+    throw new RefusalError(
+      `read ${recordsSeen.toLocaleString('en-US')} records and none carried a shape this command knows how to name`,
+      {
+        why: [
+          `The files parsed. ${corpus.agent.label} records simply do not carry the fields this`,
+          'command reads: a top-level `type`, an `attachment`, a `system` subtype, or',
+          'blocks under `message.content`. Those are Claude Code fields.',
+          '',
+          'So the retention vocabulary has nothing to be asked about here yet, and',
+          'printing "every shape has a decision" would be a green with nothing behind it.',
+        ],
+        remedies: [{ label: 'Read the records yourself', command: `deident scan --agent ${corpus.agent.id} --root <path>` }],
+        detail: { agent: corpus.agent.id, records: recordsSeen },
+      },
+    );
   }
   const result = { files: corpus.files.length, read, unreadable, axes, unknownCount };
 
@@ -324,7 +358,7 @@ export async function runScan(flags, env) {
   // token loaded after classify would silently propose the wrong tier for
   // the very directory it exists to protect.
   const knownValues = loadPrivateRules(flags, env, saltDir);
-  const corpus = resolveCorpus(env, flags.root);
+  const corpus = resolveCorpus(env, flags.root, flags.agent);
 
   const loaded = surveyCorpus(corpus, flags);
 
@@ -367,6 +401,7 @@ export async function runScan(flags, env) {
   }
 
   report.renderScan({
+    agent: corpus.agent.label,
     fileCount: corpus.files.length,
     bytes: corpus.bytes,
     dateRange: corpusDateRange(corpus.files),
@@ -504,7 +539,7 @@ export async function runReview(flags, env) {
   // token loaded after classify would silently propose the wrong tier for
   // the very directory it exists to protect.
   const knownValues = loadPrivateRules(flags, env, saltDir);
-  const corpus = resolveCorpus(env, flags.root);
+  const corpus = resolveCorpus(env, flags.root, flags.agent);
   const loaded = surveyCorpus(corpus, flags);
   const reviewPath = path.join(outDir, REVIEW_FILENAME);
   const problems = [];
@@ -564,7 +599,7 @@ export async function runTriage(flags, env) {
   const saltDir = flags.saltDir ?? defaultSaltDir(env);
   const reviewPath = path.join(outDir, REVIEW_FILENAME);
   const reviewText = readReviewText(reviewPath, outDir);
-  const corpus = resolveCorpus(env, flags.root);
+  const corpus = resolveCorpus(env, flags.root, flags.agent);
   const pathById = new Map(corpus.files.map((f) => [f.sessionId, f.path]));
 
   return flags.apply
@@ -721,14 +756,14 @@ export async function runExport(flags, env) {
   const dictionary = loadDictionary(saltDir);
 
   //  1  resolve the corpus
-  const corpus = resolveCorpus(env, flags.root);
+  const corpus = resolveCorpus(env, flags.root, flags.agent);
 
   //  2  read every file, checking I1 on untouched input
   //     3 rides along with 2, because it is the only step that reads raw line
   //     text and accumulating the corpus's raw lines to run it separately is
   //     what put the process over the V8 heap limit.
   const loaded = surveyCorpus(corpus, flags, flags.namespace, 'export');
-  if (loaded.roundTripFailures.length > 0) throw roundTripRefusal(loaded.roundTripFailures);
+  if (loaded.roundTripFailures.length > 0) throw roundTripRefusal(loaded.roundTripFailures, loaded.agent);
 
   //  3  namespace collision. Deferred to step 7a, once retention has decided
   //      which files are actually in the archive: a hit in a session nobody is
@@ -1494,7 +1529,7 @@ function surveyCorpus(corpus, flags, namespace = null, phase = null) {
   for (const file of corpus.files) {
     seen += 1;
     if (phase !== null && seen % PROGRESS_EVERY === 0) report.renderProgress(seen, corpus.files.length, 'files read');
-    const session = readSession(file.path, {
+    const session = corpus.agent.readSession(file.path, {
       skipUnreadable: flags.skipUnreadable,
       keepRaw: false,
       // Step 3 reads raw line text, and it is the only step that does. Doing it
@@ -1515,7 +1550,12 @@ function surveyCorpus(corpus, flags, namespace = null, phase = null) {
         }
       },
     });
-    const cwds = resolveLineCwd(session.records);
+    // Where the cwd comes from is the agent's answer and is stated in its
+    // module: Claude Code tracks it per line, Codex reads session_meta and
+    // then each turn_context, opencode reads the session's own info.directory,
+    // and Cursor and Gemini CLI state none at all -- which is why classify()
+    // refuses them rather than letting one row stand for the whole corpus.
+    const cwds = corpus.agent.resolveLineCwd(session.records);
     lineCount += session.records.length;
     badLines += session.badLines.length;
     // A loop, not `push(...arr)`. Spreading passes one argument per element,
@@ -1530,6 +1570,7 @@ function surveyCorpus(corpus, flags, namespace = null, phase = null) {
   }
 
   return Object.freeze({
+    agent: corpus.agent,
     sessions: Object.freeze(sessions),
     roundTripFailures: Object.freeze(roundTripFailures),
     warnings: Object.freeze(warnings),
@@ -1616,7 +1657,7 @@ function retainCorpus(
     }
     // Re-read rather than hold: the survey pass released this file's records
     // precisely so the whole corpus is never resident at once.
-    const session = readSession(file.path, { skipUnreadable: flags.skipUnreadable, keepRaw: false });
+    const session = loaded.agent.readSession(file.path, { skipUnreadable: flags.skipUnreadable, keepRaw: false });
     const ctx = newRetentionContext(rewriteUuid);
     const records = [];
 
@@ -2332,6 +2373,12 @@ function buildManifest(retained, decisions, serialized, residue, entities, cavea
  *   every later step has to look it up the same way.
  */
 function classify(loaded, saved, flags, probe = makeRemoteProbe()) {
+  // The gate is default-deny BY WORKSPACE, and a workspace is a directory.
+  // A harness that records none has no workspaces, only one `<no-cwd>` row
+  // standing for every session it ever wrote, and one word typed against that
+  // row would admit the lot. Refused here, at the one place every command that
+  // admits material passes through, rather than at each of them.
+  if (loaded.agent.cwdSource === null) throw noCwdRefusal(loaded.agent);
   const groups = groupSessions(loaded.sessions);
   const decisions = classifyWorkspaces(groups, saved, {
     includeDenied: flags.includeDenied,

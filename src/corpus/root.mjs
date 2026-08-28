@@ -1,12 +1,14 @@
-// Resolve the session-storage root from the environment and enumerate
-// depth-0 session files. BRIEF §4.9: never parse a slug. BRIEF §4.10: depth-0
-// only, a recursive glob ships 2.2x the payload with zero extra human turns.
+// Resolve the session-storage root from the environment and hand enumeration to
+// the agent that knows the layout. BRIEF §4.9: never parse a slug. BRIEF §4.10:
+// Claude Code is depth-0 only, a recursive glob ships 2.2x the payload with zero
+// extra human turns; see src/corpus/agents.mjs for what the other readers walk
+// and why none of them has a default path.
 
-import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { RefusalError } from '../cli/errors.mjs';
 import { probeCaseFolding, setCaseFolding } from './cwdtrack.mjs';
+import { selectAgent, rootRequiredRefusal, AGENT_IDS, noCwdAgents } from './agents.mjs';
 
 /**
  * Resolve `<root>/projects`. Order: explicit --root, then CLAUDE_CONFIG_DIR
@@ -64,7 +66,22 @@ export function noHomeRefusal(what, flag) {
   });
 }
 
-export function resolveRoot(env, override = null) {
+export function resolveRoot(env, override = null, agent = selectAgent(null)) {
+  // Every harness but Claude Code has no default and no environment variable
+  // to fall back on, because neither was read on a real installation of it.
+  // `--root` or nothing (agents.mjs states why at length).
+  if (!agent.hasDefaultRoot) {
+    const named = nonBlank(override);
+    if (named === null) throw rootRequiredRefusal(agent);
+    const dir = path.resolve(named);
+    return Object.freeze({
+      configDir: dir,
+      sessionsDir: path.resolve(agent.sessionsDir(dir)),
+      currentProjectDirName: null,
+      source: '--root',
+    });
+  }
+
   // `??` does not treat '' as absent, and `path.resolve('')` is the current
   // directory, so a shell profile that exports CLAUDE_CONFIG_DIR
   // unconditionally would silently point deident at the cwd, and scan whatever
@@ -78,6 +95,11 @@ export function resolveRoot(env, override = null) {
   const configDir = nonBlank(override) ?? fromEnv ?? path.join(home, '.claude');
   return Object.freeze({
     configDir: path.resolve(configDir),
+    sessionsDir: path.resolve(agent.sessionsDir(configDir)),
+    // The name it has always had. `sessionsDir` is the same directory for
+    // Claude Code and is what the enumeration now reads, so the two cannot
+    // drift; this one stays because it is what the refusals and the fixtures
+    // print, and a renamed field in a refusal is a refusal nobody recognises.
     projectsDir: path.resolve(configDir, 'projects'),
     currentProjectDirName: nonBlank(env.CLAUDE_CODE_PROJECT_DIR_NAME),
     source: nonBlank(override) ? '--root' : fromEnv ? 'CLAUDE_CONFIG_DIR' : 'the default ~/.claude',
@@ -98,35 +120,48 @@ export function nonBlank(v) {
 }
 
 /**
- * Enumerate depth-0 session files: `<projectsDir>/<dir>/*.jsonl` and nothing
- * deeper. `<dir>/<uuid>/subagents/...` is deliberately not walked (§4.10).
+ * Enumerate the session files of one harness. WHICH files those are is the
+ * agent's answer, not this function's: Claude Code walks `<root>/projects/<dir>`
+ * at depth 0 and nothing deeper (§4.10), every other reader walks the root the
+ * operator named. See agents.mjs for why only one of them has a default.
  *
- * @returns {Readonly<{root, workspaceDirs: object[], files: object[], bytes: number}>}
+ * @param {string|null} agentName  the value of --agent, or null for Claude Code
+ * @returns {Readonly<{root, agent, workspaceDirs: object[], files: object[], bytes: number}>}
  */
-export function resolveCorpus(env, override = null) {
-  const root = resolveRoot(env, override);
+export function resolveCorpus(env, override = null, agentName = null) {
+  const agent = selectAgent(agentName);
+  const root = resolveRoot(env, override, agent);
 
-  let dirents;
+  let enumerated;
   try {
-    dirents = fs.readdirSync(root.projectsDir, { withFileTypes: true });
+    enumerated = agent.enumerate(root.sessionsDir);
   } catch (err) {
-    throw new RefusalError(`no session storage at ${root.projectsDir}`, {
+    if (err instanceof RefusalError) throw err;
+    throw new RefusalError(`no session storage at ${root.sessionsDir}`, {
       why: [
         err.code === 'ENOENT'
           ? 'That directory does not exist, so there is nothing to export.'
           : `The directory could not be read (${err.code}).`,
-        `The root was resolved from ${root.source}.`,
+        `The root was resolved from ${root.source}, reading ${agent.label} sessions.`,
         '',
-        // The skill installs in more than one harness, so a Codex or Cursor
-        // user reaches this refusal. Offering --root again, which is the flag
-        // that just failed, turns a scope limit into a dead end.
-        'deident reads Claude Code session logs: <root>/projects/<dir>/*.jsonl.',
-        'Codex and Cursor write a different layout and are not read yet, so no',
-        'value of --root reaches them.',
+        // The skill installs in more than one harness, so somebody arrives here
+        // with the wrong harness selected. This used to say Codex and Cursor
+        // "are not read yet, so no value of --root reaches them", which is no
+        // longer true of any of them. What is true is which layout each reader
+        // walks, and that --agent is what chooses between them.
+        `With --agent ${agent.id}, deident only reads: ${agent.layout}`,
+        ...otherAgentLines(agent),
       ],
       remedies: [
-        { label: 'Point at a Claude Code root', command: 'deident scan --root <path to .claude>' },
-        { label: 'Or name it in the environment', command: 'deident scan   # honours CLAUDE_CONFIG_DIR' },
+        ...(agent.hasDefaultRoot
+          ? [
+              { label: 'Point at a Claude Code root', command: 'deident scan --root <path to .claude>' },
+              { label: 'Or name it in the environment', command: 'deident scan   # honours CLAUDE_CONFIG_DIR' },
+            ]
+          : [{ label: `Point at your ${agent.label} sessions`, command: `deident scan --agent ${agent.id} --root <path>` }]),
+        ...(AGENT_IDS.length > 1
+          ? [{ label: 'Or name another harness', command: `deident scan --agent <${AGENT_IDS.join('|')}> --root <path>` }]
+          : []),
       ],
     });
   }
@@ -136,80 +171,51 @@ export function resolveCorpus(env, override = null) {
   // case-sensitive macOS volume, and guessing WRONG merges two real
   // directories into one workspace row carrying one tier. A probe that cannot
   // answer leaves the per-platform default in place rather than inventing one.
-  const folds = probeCaseFolding(root.projectsDir);
+  const folds = probeCaseFolding(root.sessionsDir);
   if (folds !== null) setCaseFolding(folds);
 
-  const workspaceDirs = [];
-  const files = [];
-  let bytes = 0;
-
-  for (const dirent of dirents) {
-    if (!dirent.isDirectory()) continue;
-    const dirPath = path.join(root.projectsDir, dirent.name);
-
-    let inner;
-    try {
-      inner = fs.readdirSync(dirPath, { withFileTypes: true });
-    } catch (err) {
-      // One unreadable workspace must not sink the run (BRIEF §2).
-      workspaceDirs.push(
-        Object.freeze({ dirName: dirent.name, dirPath, sessionCount: 0, bytes: 0, unreadable: err.code }),
-      );
-      continue;
-    }
-
-    const wsFiles = [];
-    let wsBytes = 0;
-    for (const f of inner) {
-      if (!f.isFile()) continue;
-      if (!f.name.endsWith('.jsonl')) continue;
-      const filePath = path.join(dirPath, f.name);
-      let size = 0;
-      let mtimeMs = 0;
-      try {
-        const st = fs.statSync(filePath);
-        size = st.size;
-        mtimeMs = st.mtimeMs;
-      } catch {
-        // A file that vanished between readdir and stat is not an error.
-        continue;
-      }
-      wsBytes += size;
-      wsFiles.push(
-        Object.freeze({
-          path: filePath,
-          dirName: dirent.name,
-          sessionId: f.name.replace(/\.jsonl$/, ''),
-          bytes: size,
-          mtimeMs,
-        }),
-      );
-    }
-
-    wsFiles.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
-    // A loop, not `push(...arr)`: a workspace directory with enough session
-    // files would blow the argument stack before anything could be reported.
-    for (const f of wsFiles) files.push(f);
-    bytes += wsBytes;
-    workspaceDirs.push(
-      Object.freeze({
-        dirName: dirent.name,
-        dirPath,
-        sessionCount: wsFiles.length,
-        bytes: wsBytes,
-        unreadable: null,
-      }),
-    );
-  }
-
-  workspaceDirs.sort((a, b) => (a.dirName < b.dirName ? -1 : a.dirName > b.dirName ? 1 : 0));
+  const { workspaceDirs, files, bytes } = enumerated;
 
   return Object.freeze({
     root,
+    agent,
     workspaceDirs: Object.freeze(workspaceDirs),
     files: Object.freeze(files),
     bytes,
   });
+}
+
+/**
+ * What ELSE deident can be pointed at, for the refusal above.
+ *
+ * Empty while deident reads one harness, and F106 is the reason the line above
+ * says "only reads" on its own: a refusal that offers --root again, having just
+ * failed on --root, without stating its scope, turns a scope limit into a dead
+ * end.
+ */
+function otherAgentLines(agent) {
+  const others = AGENT_IDS.filter((name) => name !== agent.id);
+  if (others.length === 0) return [];
+  const stateless = noCwdAgents();
+  const lines = [
+    '',
+    `deident also reads: ${others.join(', ')}.`,
+    'Each is selected with --agent and, except for claude-code, each needs',
+    '--root: there is no installation of them on the machine deident was',
+    'built on, so it has no default location to offer and does not guess one.',
+  ];
+  // Naming the ones that read but cannot export, here, where somebody is
+  // already looking for which harness to reach for. Finding out after a scan
+  // that the harness they chose can never be tiered is a worse place to learn it.
+  if (stateless.length > 0) {
+    lines.push(
+      '',
+      `Reading is not exporting: ${stateless.join(' and ')} state no working`,
+      'directory anywhere in their logs, so their sessions can be listed and',
+      'parsed but never admitted, because the admission is per directory.',
+    );
+  }
+  return lines;
 }
 
 /** "2026-05-02 → 2026-08-22" over file mtimes, or null when there are none. */

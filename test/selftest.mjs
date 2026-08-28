@@ -64,7 +64,8 @@ import { limitLines } from '../src/cli/limits.mjs';
 import { readSession } from '../src/corpus/reader.mjs';
 import { probeCaseFolding, setCaseFolding, caseFolding, normalizeCwd } from '../src/corpus/cwdtrack.mjs';
 import { uncoveredNameParts } from '../src/entities/probe.mjs';
-import { resolveRoot } from '../src/corpus/root.mjs';
+import { resolveRoot, resolveCorpus } from '../src/corpus/root.mjs';
+import { selectAgent, noCwdAgents, AGENT_IDS, DEFAULT_AGENT } from '../src/corpus/agents.mjs';
 import {
   setCommand,
   renderRefusal,
@@ -134,6 +135,30 @@ function entity(id, kind, canonical, pseudonym, extra = {}) {
 
 function tmpdir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'deident-selftest-'));
+}
+
+
+// ------------------------------------------------------- harness fixtures
+//
+// One row per harness deident reads, in its own shape, taken from what was
+// measured over the SALT-NLP/SWE-chat sample on 2026-08-27. F240 and F242 walk
+// this table, so adding a reader is adding a row here and nothing else: a
+// reader with no row is a reader nothing asserts, and that is visible.
+//
+// The same fabricated cwd everywhere it exists, so a cwd read from the wrong
+// place is a value mismatch and not an accident of which corpus was used.
+const HARNESS_CWD = ['C:', 'Users', 'devuser', 'projects', 'alpha'].join(BS);
+const HARNESS_MOVED = ['C:', 'Users', 'devuser', 'projects', 'beta'].join(BS);
+
+const HARNESSES = [];
+
+/** Write every harness's fixture session under one root. */
+function writeHarnessRoots(root) {
+  for (const h of HARNESSES) {
+    const dir = path.join(root, ...h.dir);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, h.file), h.write(), 'utf8');
+  }
 }
 
 
@@ -10275,6 +10300,137 @@ const FIXTURES = [
     for (const [a, b] of [['function_call', 'tool_use'], ['agent_message', 'assistant'], ['step-finish', 'turn_duration'], ['thoughts', 'thinking'], ['gemini', 'assistant']]) {
       const near = new RegExp(`${a}[\\s\\S]{0,40}${b}|${b}[\\s\\S]{0,40}${a}`);
       assert.ok(!near.test(src), `src/retain looks like it maps ${a} onto ${b}; deident does not re-shape records across harnesses`);
+    }
+  }],
+
+  // ------------------------------------------------------ the agent seam
+  //
+  // F240-F244. deident read one harness. It now reads five, selected with
+  // --agent, and NO reader but Claude Code's has a default path: the operator
+  // points --root at their own logs and that is the only way in. Claude Code's
+  // default is known because it was read on a real installation; there is no
+  // installation of the other four on the machine deident was built on, so a
+  // hardcoded path would be a guess wearing the clothes of a fact and the
+  // first person whose install differs gets a refusal naming a directory that
+  // was never theirs.
+
+  ['F243', 'with no --agent the export is byte-identical to naming claude-code, asserted on a real archive', () => {
+    // The fixtures that came before this one are the evidence that Claude
+    // Code's behaviour did not move, and none of them was edited to keep
+    // passing. This one closes the remaining question from the other side: that
+    // the DEFAULT still routes to Claude Code's reader, measured on the bytes
+    // of a real archive rather than read off the code.
+    const root = tmpdir();
+    const out = path.join(root, 'out');
+    const saltDir = path.join(root, 'salt');
+    writeCorpus(root);
+
+    const scan = runCli(['scan', '--root', root, '--out', out, '--salt-dir', saltDir], CORPUS_USER_ENV);
+    assert.equal(scan.code, 0, scan.out);
+    setTier(path.join(out, 'review.md'), 'alpha', 'redact');
+    primeSemanticPass(root, out, saltDir, CORPUS_USER_ENV);
+
+    const args = (extra) => [
+      'export', '--skip-secret-scan', '--root', root, '--out', out, '--salt-dir', saltDir,
+      '--entities', path.join(root, 'ents.json'), ...extra,
+    ];
+    const bare = runCli(args([]), CORPUS_USER_ENV);
+    // Named in the message, because the whole point of this fixture is which
+    // of the two runs went wrong, and the CLI's own output does not say.
+    assert.equal(bare.code, 0, `the run with no --agent did not export: ${bare.out}`);
+    const zipName = fs.readdirSync(out).filter((f) => f.endsWith('.zip'));
+    assert.equal(zipName.length, 1, 'exactly one archive');
+    const first = fs.readFileSync(path.join(out, zipName[0]));
+
+    const named = runCli(args(['--agent', 'claude-code']), CORPUS_USER_ENV);
+    assert.equal(named.code, 0, `the run naming --agent claude-code did not export: ${named.out}`);
+    assert.deepEqual(fs.readdirSync(out).filter((f) => f.endsWith('.zip')), zipName, 'the archive was named differently');
+    const second = fs.readFileSync(path.join(out, zipName[0]));
+
+    assert.equal(Buffer.compare(first, second), 0, 'naming the default agent changed the archive');
+    assert.ok(first.length > 0, 'both runs produced an empty archive, which would compare equal for the wrong reason');
+    fs.rmSync(root, { recursive: true, force: true });
+  }],
+
+  ['F244', 'no harness is reachable without --agent naming it, and none has a default path in the source', () => {
+    // Two halves, because either alone is a green with a hole behind it.
+    //
+    // First: the default is Claude Code and nothing else can be reached by
+    // omission, so no operator ever gets another harness's reader by accident.
+    assert.equal(DEFAULT_AGENT, 'claude-code');
+    assert.equal(selectAgent(null).id, 'claude-code');
+    assert.equal(selectAgent(undefined).id, 'claude-code');
+    assert.deepEqual(AGENT_IDS, ['claude-code', ...HARNESSES.map((h) => h.agent)]);
+    for (const name of AGENT_IDS) assert.equal(selectAgent(name).id, name);
+    // A typo is refused rather than falling back to the default, which would
+    // silently read Claude Code's storage after being told to read another.
+    assert.throws(() => selectAgent('claude-codex'), /unknown agent/);
+    const bad = runCli(['scan', '--agent', 'kodex']);
+    assert.equal(bad.code, 2, `an unknown --agent must be a usage error: ${bad.out}`);
+    assert.match(bad.out, new RegExp(AGENT_IDS.join(', ')), bad.out);
+
+    // Second, and the half this fixture exists for: no default path for a
+    // non-Claude-Code harness exists ANYWHERE in src/. Asserted by scanning the
+    // source, the way F220 asserts the scanner's flags, because the failure is
+    // one line away and it is a line that looks helpful. A hardcoded path
+    // under the home directory is a guess wearing the clothes of a fact: the
+    // first person whose install differs gets a refusal naming a directory
+    // that was never theirs, and --root already carries their own answer.
+    const repo = fileURLToPath(new URL('..', import.meta.url));
+    const src = path.join(repo, 'src');
+    const seen = [];
+    const walk = (dir) => {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, e.name);
+        if (e.isDirectory()) walk(p);
+        else if (e.name.endsWith('.mjs')) seen.push([p, fs.readFileSync(p, 'utf8')]);
+      }
+    };
+    walk(src);
+    assert.ok(seen.length > 20, `the source scan found only ${seen.length} files, so it is not scanning the source`);
+
+    // The storage directory names these harnesses actually use, plus the
+    // environment variables that would be a second way to smuggle one in. The
+    // scan does not know a comment from a line of code, deliberately: it stays
+    // total, and the cost is that src/ cannot spell out the paths it refuses
+    // to use.
+    const forbidden = [
+      '.codex', 'codex/sessions', '.cursor', 'cursor/chats',
+      '.opencode', 'opencode/storage', '.gemini', 'gemini/tmp',
+      'CODEX_HOME', 'CURSOR_', 'OPENCODE_', 'GEMINI_',
+    ];
+    for (const [file, text] of seen) {
+      for (const needle of forbidden) {
+        assert.ok(
+          !text.includes(needle),
+          `${path.relative(repo, file)} contains "${needle}", which is a default path for a harness deident must be pointed at`,
+        );
+      }
+    }
+
+    // And positively: every reader but Claude Code's declares it has no
+    // default, and refuses without --root rather than resolving one.
+    for (const name of AGENT_IDS) {
+      const agent = selectAgent(name);
+      assert.equal(agent.hasDefaultRoot, name === 'claude-code', `${name}: hasDefaultRoot is wrong`);
+      // Every reader states whether its writer emits canonical JSON, because
+      // I1 is a BYTE comparison and only Claude Code's writer can pass one.
+      // Measured 2026-08-27: Codex writes a space after every `:` and `,` and
+      // whole floats as `5.0`, so 15,714 of 15,714 lines of a healthy corpus
+      // fail I1; Cursor, 1,024 of 1,024. Undeclared, the refusal blames the
+      // operator's logs for a property of the writer.
+      assert.equal(typeof agent.canonicalJson, 'boolean', `${name}: does not say whether its writer is canonical`);
+      assert.equal(agent.canonicalJson, name === 'claude-code', `${name}: canonicalJson is wrong`);
+      if (name === 'claude-code') continue;
+      assert.throws(
+        () => resolveRoot({ HOME: 'C:/home/nobody', CLAUDE_CONFIG_DIR: 'C:/somewhere/else' }, null, agent),
+        (err) => String(err.message).includes('--root is required'),
+        `${name} resolved a root from the environment instead of refusing`,
+      );
+      const r = runCli(['scan', '--agent', name]);
+      assert.equal(r.code, 1, `${name} ran without --root: ${r.out}`);
+      assert.match(r.out, /--root is required/, r.out);
+      assert.match(r.out, /does not guess one/, r.out);
     }
   }],
 
