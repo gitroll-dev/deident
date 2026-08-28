@@ -10084,6 +10084,35 @@ const FIXTURES = [
     assert.deepEqual(shapeOnly, ['custom_tool_call_output', 'exec_command_end', 'function_call_output', 'mcp_tool_call_end', 'patch_apply_end'].sort(), 'the shape-only set changed');
   }],
 
+  ['F235', 'the cursor vocabulary is four names, and turn_ended is left undecided on purpose', () => {
+    // Measured over 19 Cursor sessions, 1024 lines: assistant 848, user 176;
+    // text 909 (733 assistant, 176 user), tool_use 403. Cursor's record key is
+    // the role and there is no third key anywhere in the corpus.
+    const s = loadSchema('cursor');
+
+    // Checked BEFORE the exact-set assertions below, so that deciding it
+    // reports the mistake that was actually made rather than a set mismatch.
+    // turn_ended is reported elsewhere and appears in none of the 1024 lines.
+    // Deciding it would be the guess the fail-closed rule exists to prevent,
+    // so it must stay absent and refuse on the first corpus that has one.
+    assert.equal(s.recordTypes.turn_ended, undefined, 'turn_ended was decided without a record to decide it from');
+    assert.equal(s.contentBlocks.turn_ended, undefined, 'turn_ended was decided without a record to decide it from');
+
+    assert.deepEqual(s.recordTypes, { user: 'keep', assistant: 'keep' }, 'cursor recordTypes drifted from the measured roles');
+    assert.deepEqual(s.contentBlocks, { text: 'keep', tool_use: 'keep' }, 'cursor contentBlocks drifted from the measured blocks');
+    assert.deepEqual(s.attachmentTypes, {}, 'cursor grew an attachment vocabulary');
+    assert.deepEqual(s.systemSubtypes, {}, 'cursor grew a system-subtype vocabulary');
+
+    // Cursor's exported transcript carries 403 tool calls and zero results, so
+    // there is nothing on this harness for shape-only to describe. A
+    // shape-only entry appearing here would mean someone copied a decision
+    // across from a harness that does emit results.
+    assert.ok(
+      !Object.values(s.contentBlocks).includes('shape-only'),
+      'cursor gained a shape-only decision, but its transcripts contain no tool output at all',
+    );
+  }],
+
 ];
 
 export function selftest() {
