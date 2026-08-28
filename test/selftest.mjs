@@ -14,7 +14,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 
-import { loadSchema } from '../src/retain/schema.mjs';
+import { loadSchema, knownAgents } from '../src/retain/schema.mjs';
 import { expandVariants, looseVariants, squashedForm, isCjkOnly, backslashUEscape } from '../src/entities/variants.mjs';
 import { hanVariants, foldTable } from '../src/entities/hanfold.mjs';
 import {
@@ -10165,6 +10165,117 @@ const FIXTURES = [
     // than being decided from another harness's records.
     assert.equal(s.recordTypes['file-history-snapshot'], undefined, 'a Gemini decision was recorded from a Claude Code record');
     assert.equal(loadSchema('claude-code').recordTypes['file-history-snapshot'], 'drop', 'this fixture needs the Claude Code type it is being distinguished from');
+  }],
+
+  ['F238', 'every agent fails closed on its own: an undecided name is refused, and rationale explains only real decisions', () => {
+    // The property the four new files must not cost. Asserted per agent
+    // because each one is loaded independently: a name nobody decided has no
+    // decision to find, in any section, for any harness.
+    const invented = 'zz-a-name-no-schema-ships';
+    const repo = fileURLToPath(new URL('..', import.meta.url));
+    const agents = knownAgents();
+    assert.deepEqual(agents, ['claude-code', 'codex', 'cursor', 'gemini-cli', 'opencode'], 'the shipped agent list changed');
+
+    for (const agent of agents) {
+      const s = loadSchema(agent);
+      for (const section of ['recordTypes', 'attachmentTypes', 'systemSubtypes', 'contentBlocks']) {
+        assert.equal(s[section][invented], undefined, `${agent} ${section} produced a decision for a name nobody shipped`);
+      }
+      assert.ok(Object.keys(s.recordTypes).length > 0, `${agent} ships no record types, so every record would be unknown`);
+
+      // A rationale for a name the file does not decide reads as though the
+      // type is handled when it is not. Same property F230 asserts for
+      // claude-code, extended to every agent so a new file cannot skip it.
+      const dir = path.join(repo, 'schemas', agent);
+      for (const f of fs.readdirSync(dir).filter((x) => x.endsWith('.json'))) {
+        const doc = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
+        for (const key of Object.keys(doc.rationale ?? {})) {
+          const dot = key.indexOf('.');
+          const section = key.slice(0, dot);
+          const name = key.slice(dot + 1);
+          assert.ok(s[section] !== undefined, `${agent}/${f}: rationale names an unknown section ${section}`);
+          assert.ok(s[section][name] !== undefined, `${agent}/${f}: rationale explains ${key}, which no schema file decides`);
+        }
+      }
+    }
+
+    // An agent with no directory refuses and names itself, rather than
+    // loading empty and accepting everything.
+    assert.throws(
+      () => loadSchema('zz-no-such-agent'),
+      (err) => String(err.message).includes('zz-no-such-agent'),
+      'an agent with no schema loaded instead of refusing',
+    );
+  }],
+
+  ['F239', 'no agent shares a vocabulary entry with another, so no name can be mapped across harnesses', () => {
+    // THE fixture. deident never re-shapes a record: a Codex record goes out
+    // in Codex's shape, a Cursor record in Cursor's. The moment two agents
+    // share one vocabulary entry, a consumer's decision has been made for
+    // them and information has been compressed away. This exists so that a
+    // later reader who does not know why normalisation is forbidden cannot
+    // introduce it without a red fixture, and it asserts the property three
+    // ways: names collide and stay independent, loading is directory-scoped,
+    // and no cross-agent alias table exists in the source.
+    const agents = knownAgents();
+    const loaded = new Map(agents.map((a) => [a, loadSchema(a)]));
+
+    // 1. Same spelling, independent entries. These collisions are real and
+    // were decided separately from each harness's own records.
+    const collisions = [
+      ['recordTypes', 'user', ['claude-code', 'cursor', 'gemini-cli', 'opencode']],
+      ['recordTypes', 'assistant', ['claude-code', 'cursor', 'opencode']],
+      ['contentBlocks', 'text', ['claude-code', 'cursor', 'opencode']],
+      ['contentBlocks', 'reasoning', ['codex', 'opencode']],
+    ];
+    for (const [section, name, expected] of collisions) {
+      const holders = agents.filter((a) => loaded.get(a)[section][name] !== undefined).sort();
+      assert.deepEqual(holders, [...expected].sort(), `the agents deciding ${section}.${name} changed`);
+    }
+    // Codex reached `keep` for its own reasoning and opencode for its own; if
+    // one file ever sourced the other, they would stop being two decisions.
+    assert.notEqual(loaded.get('codex').contentBlocks, loaded.get('opencode').contentBlocks, 'two agents are sharing one contentBlocks object');
+
+    // 2. An agent's vocabulary comes only from its own directory. Every source
+    // path recorded on the load must sit under schemas/<that agent>/.
+    for (const agent of agents) {
+      for (const src of loaded.get(agent).sources) {
+        assert.ok(
+          path.dirname(src.file).endsWith(`${path.sep}${agent}`),
+          `${agent} loaded a decision from ${src.file}, which is another agent's directory`,
+        );
+      }
+    }
+
+    // 3. Isolation under a planted root: a name that exists only in agent B's
+    // directory must be invisible to agent A, whatever the loader does.
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'deident-agents-'));
+    fs.mkdirSync(path.join(root, 'alpha'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'beta'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'alpha', 'v.json'), JSON.stringify({ agent: 'alpha', recordTypes: { shared_name: 'keep', only_alpha: 'keep' } }));
+    fs.writeFileSync(path.join(root, 'beta', 'v.json'), JSON.stringify({ agent: 'beta', recordTypes: { shared_name: 'drop', only_beta: 'drop' } }));
+    const alpha = loadSchema('alpha', null, root);
+    const beta = loadSchema('beta', null, root);
+    assert.equal(alpha.recordTypes.only_beta, undefined, "alpha can see beta's vocabulary");
+    assert.equal(beta.recordTypes.only_alpha, undefined, "beta can see alpha's vocabulary");
+    // The same spelling with OPPOSITE decisions must load cleanly in both. If
+    // agents were ever unioned, this is the pair that would refuse as a
+    // contradiction, which is exactly the wrong outcome across harnesses.
+    assert.equal(alpha.recordTypes.shared_name, 'keep', 'a cross-agent name collision disturbed alpha');
+    assert.equal(beta.recordTypes.shared_name, 'drop', 'a cross-agent name collision disturbed beta');
+    fs.rmSync(root, { recursive: true, force: true });
+
+    // 4. No alias table in the source. A normalisation layer has to write the
+    // mapping down somewhere; these are the pairs it would be written as.
+    const repo = fileURLToPath(new URL('..', import.meta.url));
+    const src = fs.readdirSync(path.join(repo, 'src', 'retain'))
+      .filter((f) => f.endsWith('.mjs'))
+      .map((f) => fs.readFileSync(path.join(repo, 'src', 'retain', f), 'utf8'))
+      .join('\n');
+    for (const [a, b] of [['function_call', 'tool_use'], ['agent_message', 'assistant'], ['step-finish', 'turn_duration'], ['thoughts', 'thinking'], ['gemini', 'assistant']]) {
+      const near = new RegExp(`${a}[\\s\\S]{0,40}${b}|${b}[\\s\\S]{0,40}${a}`);
+      assert.ok(!near.test(src), `src/retain looks like it maps ${a} onto ${b}; deident does not re-shape records across harnesses`);
+    }
   }],
 
 ];
