@@ -1346,6 +1346,9 @@ export async function runExport(flags, env) {
         strings: allStrings,
         // The merged table, so a tier-0 excerpt cannot show a tier-1 entity.
         table: mergedTable,
+        // Both halves of the archive's residue gate, so writePreview can run
+        // the same check over its own rendering before it writes.
+        minted: rewriteUuid.minted,
         entities,
         manifest,
         checks: toReportRows(checks),

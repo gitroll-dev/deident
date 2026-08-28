@@ -15,15 +15,48 @@ import { EXAMPLES_PER_REPORT } from '../retain/constants.mjs';
 import { safeUnlink } from './zip.mjs';
 import { substituteString } from '../substitute/engine.mjs';
 import { limitLines } from '../cli/limits.mjs';
+import { checkResidue, residueRefusal } from '../verify/checks.mjs';
 
 const CONTEXT_CHARS = 45;
 
 /**
- * @param {object} state  {strings, entities, manifest, checks, namespace}
+ * @param {object} state  {strings, table, minted, entities, manifest, checks}
  * @param {string} outPath
  */
 export function writePreview(state, outPath) {
   const text = renderPreview(state);
+
+  // The same gate the archive gets, over the bytes this file will actually
+  // contain.
+  //
+  // Every check upstream of here ran over `serialized.allBytes`, which is the
+  // archive. This file is a DIFFERENT rendering of the same run: its own
+  // excerpt cutter, its own escaping, its own decisions about what to print
+  // beside a pseudonym. None of that was scanned, and the export path already
+  // learned this lesson once, at readZipFile, where "a reviewer was handed
+  // something that was not what shipped three separate times, and each time
+  // the gap was where the leak lived". Same property here, and a worse
+  // audience: this is the file an engineer reads BEFORE anything leaves, so a
+  // name surviving into it is a name the one person who could still stop the
+  // export is told is already gone.
+  //
+  // The excerpt cutter shipped exactly this defect once: windows cut from the
+  // ORIGINAL string put the username and the home path a few characters left
+  // of the pseudonym (see excerptAt). That was found by reading the output.
+  // This is the check that would have found it.
+  //
+  // Before the write, not after, so a refusal leaves no file at all: a preview
+  // on disk is a preview somebody reads.
+  //
+  // Measured 2026-08-28 over the live corpus (deident-runs/2026-08-27,
+  // 41 sessions, 2,612 entities): 0 entity occurrences, 0 unknown uuids. The
+  // flagged canonicals printed under "flagged, never substituted" do NOT trip
+  // it, because buildTable puts a null-pseudonym entity in `table.flagged` and
+  // residualScan reads `table.entries` only. §F7: measured before it was
+  // allowed to refuse.
+  const residue = checkResidue(text, state.table, state.minted);
+  if (!residue.ok) throw residueRefusal(residue);
+
   const partPath = `${outPath}.part`;
   try {
     fs.mkdirSync(path.dirname(outPath), { recursive: true });
@@ -88,7 +121,21 @@ export function renderPreview(state) {
   // The rows stay here, unlike the terminal. This is a document somebody opens
   // to inspect detail rather than a screen they skim in three seconds, and the
   // per-check attribution is the thing they came for.
-  for (const c of state.checks) push(`    ${c.label.padEnd(23)} ${c.detail.padEnd(44)} ${c.ok ? 'ok' : 'FAILED'}`);
+  //
+  // Substituted, like every excerpt above, because a check detail is not
+  // deident's own prose: `semantic pass` prints `tier1.source`, which is the
+  // `--entities` argument the operator typed. On the live corpus that was
+  // `--entities C:/Users/rayku/.deident-private/maps/entities-2026-08-27.json`,
+  // so the file whose header says it pairs no pseudonym to a spelling printed
+  // the OS username and the home path in clear, three rows under
+  // `known-entity residue 0`. The terminal keeps the raw path: it says which
+  // file satisfied the gate, and it is not an artifact. The table runs over
+  // the whole row rather than over that one field, so the next detail nobody
+  // thought about is covered by the same line.
+  for (const c of state.checks) {
+    const detail = state.table ? substituteString(c.detail, state.table).out : c.detail;
+    push(`    ${c.label.padEnd(23)} ${detail.padEnd(44)} ${c.ok ? 'ok' : 'FAILED'}`);
+  }
   push('');
   // The remainder does NOT stay behind, on any surface. Every row above asks
   // whether the output is consistent with the entity table; none asks whether
