@@ -10142,6 +10142,31 @@ const FIXTURES = [
     assert.equal(s.contentBlocks.file, 'drop', 'opencode file carries no body, only a path and a mention offset');
   }],
 
+  ['F237', 'the gemini-cli vocabulary is five message types and nothing else, with no file-history-snapshot', () => {
+    // Measured over 56 Gemini CLI documents, 6391 messages: gemini 5647,
+    // user 603, info 118, warning 14, error 9.
+    const s = loadSchema('gemini-cli');
+    assert.deepEqual(s.recordTypes, {
+      gemini: 'keep', user: 'keep', info: 'drop', warning: 'drop', error: 'drop',
+    }, 'gemini-cli recordTypes drifted from the measured message types');
+
+    // `type` is the only discriminator Gemini CLI has. content is a string and
+    // thoughts / toolCalls / displayContent are fields, not a tagged union, so
+    // there are no content blocks to decide. An empty-but-present section
+    // would claim a vocabulary this harness does not have.
+    assert.deepEqual(s.contentBlocks, {}, 'gemini-cli grew a content-block vocabulary, but its content is a plain string');
+    assert.deepEqual(s.attachmentTypes, {}, 'gemini-cli grew an attachment vocabulary');
+    assert.deepEqual(s.systemSubtypes, {}, 'gemini-cli grew a system-subtype vocabulary');
+
+    // The reported collision with a Claude Code type does not exist on
+    // Gemini's own evidence: file-history-snapshot occurs only in the two
+    // Claude Code transcripts misfiled into the Gemini directory, and in none
+    // of the 56 Gemini documents. So it stays undecided and refuses, rather
+    // than being decided from another harness's records.
+    assert.equal(s.recordTypes['file-history-snapshot'], undefined, 'a Gemini decision was recorded from a Claude Code record');
+    assert.equal(loadSchema('claude-code').recordTypes['file-history-snapshot'], 'drop', 'this fixture needs the Claude Code type it is being distinguished from');
+  }],
+
 ];
 
 export function selftest() {
