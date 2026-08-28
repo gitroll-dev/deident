@@ -101,10 +101,10 @@ for every workspace, git remote or not, and one matching `private`, `identity`,
 inside a directory you typed by hand ([why](docs/design-rationale.md#opt-in-never-opt-out)).
 
 **Declare what deident cannot infer**, in `~/.deident-private/known-values.json`.
-A bare string is enough, `{"values": ["1974-11-03", {"kind": "person", "value":
-"Nora Lund"}]}`, and no file is the normal case, but it is the one list no inference
-reaches: an archive whose checks were all green shipped 21 identity fields in
-plaintext for want of it ([story](docs/limits.md#deident-cannot-infer-the-list-of-your-own-literal-values)).
+A bare string is enough: `{"values": ["1974-11-03", {"kind": "person", "value":
+"Nora Lund"}]}`. The export refuses until that file exists or you answer
+`--declare-nothing` once; the reason is at the top of this page and is not
+repeated here.
 
 ## The four-stage funnel
 
