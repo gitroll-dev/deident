@@ -67,7 +67,7 @@ import {
   loadKnownValues,
 } from '../src/policy/knownvalues.mjs';
 import { limitLines } from '../src/cli/limits.mjs';
-import { readSession } from '../src/corpus/reader.mjs';
+import { readSession, nestingDepth } from '../src/corpus/reader.mjs';
 import { probeCaseFolding, setCaseFolding, caseFolding, normalizeCwd } from '../src/corpus/cwdtrack.mjs';
 import { uncoveredNameParts } from '../src/entities/probe.mjs';
 import { resolveRoot, resolveCorpus } from '../src/corpus/root.mjs';
@@ -113,6 +113,7 @@ import {
   DENIED_PATH_MARKER,
   DENIED_PATH_REASON,
   DENIED_TEXT,
+  MAX_RECORD_DEPTH,
 } from '../src/retain/constants.mjs';
 import { sweepDenied } from '../src/verify/sweep.mjs';
 import { DICTIONARY_FILENAME, mergeEntities } from '../src/policy/dictionary.mjs';
@@ -2534,11 +2535,18 @@ const FIXTURES = [
   // reported as `internal error while running "scan": Maximum call stack size
   // exceeded / This is a bug in deident, not a problem with your data`, exit 1
   //, naming the wrong culprit and sending the user to file an issue about
-  // their own file. Threshold measured between 1,500 (passes) and 3,000 (fails).
+  // their own file.
+  //
+  // It used to nest 6,000 levels and wait for V8 to give up, which made the
+  // subject of the assertion V8 rather than deident. On macos-latest V8 parsed
+  // 6,000 without complaint, nothing threw, and this was the only red cell in
+  // the matrix. The depth comes from MAX_RECORD_DEPTH now, so what refuses the
+  // record is deident's number and the same file is refused everywhere. F263
+  // asserts the bound itself; this one asserts the SHAPE of the refusal.
   ['F66', 'a record nested too deeply is a read error naming the line, not a bug report', () => {
     const dir = tmpdir();
     const file = path.join(dir, 'deep.jsonl');
-    const depth = 6000;
+    const depth = MAX_RECORD_DEPTH + 1;
     const nested = '{"n":'.repeat(depth) + '1' + '}'.repeat(depth);
     fs.writeFileSync(
       file,
@@ -2853,10 +2861,13 @@ const FIXTURES = [
   // --skip-unreadable produced the identical exit 3, because the RangeError
   // branch ran BEFORE the skip branch. A remedy that cannot work is worse than
   // none (cli-ux §8), and there was no other route past the file.
+  //
+  // The depth comes from MAX_RECORD_DEPTH for the reason F66 gives: at 6,000
+  // this asserted that V8 gave up, and on macos-latest V8 did not.
   ['F74', '--skip-unreadable actually skips a record nested too deeply', () => {
     const dir = tmpdir();
     const file = path.join(dir, 'deep.jsonl');
-    const depth = 6000;
+    const depth = MAX_RECORD_DEPTH + 1;
     const nested = '{"n":'.repeat(depth) + '1' + '}'.repeat(depth);
     fs.writeFileSync(
       file,
@@ -11764,6 +11775,86 @@ const FIXTURES = [
       assert.ok(names.has(h.entry), `a hit names ${h.entry}, which is not an entry in the zip`);
     }
     fs.rmSync(root, { recursive: true, force: true });
+  }],
+
+  // F263, the nesting refusal was the runtime's, not deident's.
+  //
+  // The reader had no depth bound. It relied on `JSON.parse` or `JSON.stringify`
+  // running out of stack, and that depth is a V8 implementation detail that
+  // moves with the platform: measured on Node 22, win32/arm64 refuses a
+  // 6,000-deep record and macos-latest parses it and KEEPS it. So the same
+  // session file exported differently on two teammates' machines, and on the
+  // permissive one the record went on to a pipeline whose every walker is
+  // recursive. `selftest (macos-latest, 22)` was 252/254 within an hour of that
+  // runner joining the matrix and it was red about a real difference.
+  //
+  // Both sides of the bound are asserted, because a bound only one side of
+  // which is tested is a bound nobody has measured.
+  ['F263', 'the nesting bound belongs to deident, not to the runtime it happens to run on', () => {
+    const dir = tmpdir();
+    // `record(n)` nests to n + 1: the envelope's own outer brace is level 1 and
+    // `toolUseResult` opens at level 2. So n = MAX_RECORD_DEPTH - 1 is the
+    // deepest record that may be read, and one more than that is the first that
+    // may not.
+    const record = (n) => {
+      const nested = '{"n":'.repeat(n) + '1' + '}'.repeat(n);
+      return `{"type":"user","uuid":"a","sessionId":"s","message":{"role":"user","content":[]},"toolUseResult":${nested}}`;
+    };
+
+    const at = path.join(dir, 'at-bound.jsonl');
+    fs.writeFileSync(at, record(MAX_RECORD_DEPTH - 1) + NL, 'utf8');
+    assert.equal(readSession(at).records.length, 1, 'a record exactly at the bound is readable');
+
+    const over = path.join(dir, 'over-bound.jsonl');
+    fs.writeFileSync(over, record(MAX_RECORD_DEPTH) + NL, 'utf8');
+    let caught = null;
+    try {
+      readSession(over);
+    } catch (err) {
+      caught = err;
+    }
+    assert.ok(caught instanceof ReadError, `one past the bound must be a ReadError, got ${caught && caught.name}`);
+    assert.equal(caught.code, 3, 'an unreadable input is exit 3, not exit 1');
+    assert.equal(caught.detail.line, 1);
+    // The measured depth is stated, and it is the one this fixture built rather
+    // than whatever the runtime happened to reach before it gave up.
+    assert.match(caught.detail.likelyCause, new RegExp(`nests JSON ${MAX_RECORD_DEPTH + 1} levels deep`));
+
+    // And the flag still gets past it, at the bound as everywhere else.
+    assert.equal(readSession(over, { skipUnreadable: true }).badLines.length, 1);
+
+    // The point of the whole change: the bound has to sit far below every
+    // runtime's stack limit, or the runtime decides again and the platforms
+    // diverge again. The tightest measured on any runner is `JSON.stringify` at
+    // 2,107 on win32/arm64 Node 22.23.1; the deepest record in the live corpus
+    // is 12. A value that drifts out of that gap towards the stack is exactly
+    // the bug this fixture exists for.
+    assert.ok(
+      MAX_RECORD_DEPTH >= 24 && MAX_RECORD_DEPTH <= 500,
+      `MAX_RECORD_DEPTH is ${MAX_RECORD_DEPTH}, which is no longer between real logs and any stack limit`,
+    );
+
+    // A bracket inside a string literal is text, not structure, and the scan
+    // jumps string bodies rather than stepping through them, so the escape
+    // handling is the one place it can go wrong. Every expected value below is
+    // worked by hand off the JSON grammar. `BS` is a single backslash.
+    const cases = [
+      ['{}', 1, 'the trivial object'],
+      ['{"a":[{"b":1}]}', 3, 'object, array, object'],
+      [`{"a":"{{{{["}`, 1, 'brackets inside a string are text'],
+      [`{"a":"x${BS}${BS}"}`, 1, 'an escaped backslash ends the string, so `}` closes it'],
+      [`{"a":"x${BS}"}","b":[1]}`, 2, 'an escaped quote does NOT end the string'],
+      [`{"a":"${BS}${BS}${BS}"}","b":[1]}`, 2, 'three backslashes: escaped backslash, then escaped quote'],
+      [`{"a":"unterminated`, 1, 'a string that never closes measures what it saw'],
+    ];
+    for (const [text, want, why] of cases) {
+      assert.equal(nestingDepth(text), want, `${why}: ${text}`);
+    }
+
+    // And the fast path agrees with the structure it is measuring, on a shape
+    // built rather than hand-counted: n arrays inside n objects nests 2n.
+    const woven = '{"a":['.repeat(40) + '1' + ']}'.repeat(40);
+    assert.equal(nestingDepth(woven), 80);
   }],
 
 ];

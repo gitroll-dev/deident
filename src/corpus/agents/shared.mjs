@@ -10,6 +10,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { ReadError, RefusalError } from '../../cli/errors.mjs';
+import { nestingDepth, nestingError } from '../reader.mjs';
+import { MAX_RECORD_DEPTH } from '../../retain/constants.mjs';
 
 // U+FFFD, written without an escape so no editing round-trip can mangle it.
 const REPLACEMENT_CHAR = String.fromCharCode(0xfffd);
@@ -161,6 +163,19 @@ export function readDocument(filePath, opts, unpack, recognise, shape) {
   buf = null;
 
   const text = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
+
+  // The same bound the line reader applies, for the same reason: without it
+  // what refuses a pathologically nested file is whichever V8 function runs out
+  // of stack first, which is a different depth on every platform. The unit here
+  // is the DOCUMENT, because that is what the file is, so this is measured
+  // across the envelope and every record inside it at once. Real files of this
+  // shape nest around a dozen levels, so the two readings never diverge in
+  // practice; where they could, the document reading is the stricter one.
+  const docDepth = nestingDepth(text);
+  if (docDepth > MAX_RECORD_DEPTH) {
+    if (!skip) throw nestingError(filePath, null, null, docDepth);
+    return emptyRead(filePath, bytes, `nests ${docDepth} levels deep`);
+  }
 
   let doc;
   try {

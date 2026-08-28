@@ -8,6 +8,7 @@
 
 import fs from 'node:fs';
 import { ReadError, RefusalError } from '../cli/errors.mjs';
+import { MAX_RECORD_DEPTH } from '../retain/constants.mjs';
 
 // U+FFFD, written without an escape so no editing round-trip can mangle it.
 const REPLACEMENT_CHAR = String.fromCharCode(0xfffd);
@@ -78,6 +79,21 @@ export function readSession(filePath, opts = {}) {
     if (line.trim() === '') continue;
 
     const lineNo = i + 1;
+
+    // deident's own depth bound, on the TEXT, before the parse. Until this
+    // existed the refusal came from whichever V8 function ran out of stack
+    // first, which is a different depth on every platform: the same 6,000-deep
+    // record was refused on win32 and kept on macOS. See MAX_RECORD_DEPTH.
+    //
+    // The `skip` test comes first here for the same reason it does below: the
+    // refusal names --skip-unreadable, so --skip-unreadable has to get past it.
+    const depth = nestingDepth(line);
+    if (depth > MAX_RECORD_DEPTH) {
+      if (!skip) throw nestingError(filePath, lineNo, null, depth);
+      badLines.push(Object.freeze({ line: lineNo, message: `nests ${depth} levels deep` }));
+      continue;
+    }
+
     let value;
     try {
       value = JSON.parse(line);
@@ -141,22 +157,97 @@ export function readSession(filePath, opts = {}) {
   });
 }
 
+// The characters that decide nesting depth, and the one that escapes them.
+// Named because a bare 0x5c in a loop reads as noise.
+const CH_QUOTE = 34;
+const CH_BACKSLASH = 92;
+const CH_OPEN_BRACKET = 91;
+const CH_CLOSE_BRACKET = 93;
+const CH_OPEN_BRACE = 123;
+const CH_CLOSE_BRACE = 125;
+
 /**
- * A record nested deeply enough to exhaust the JS stack.
+ * How deeply one line of JSON nests, counted over the text.
+ *
+ * Deliberately BEFORE the parse and deliberately iterative. A recursive check
+ * would exhaust the same stack it exists to protect, and a check on the parsed
+ * value would mean the runtime's parser had already run at whatever depth that
+ * runtime happens to tolerate, which is the thing being removed. Counting
+ * brackets outside string literals is exact for well-formed JSON; a line that
+ * is not well-formed is refused by the parse that follows.
+ *
+ * String bodies are jumped with `indexOf` rather than stepped through, because
+ * almost every byte of a session log is inside one: prose, code, paths, pasted
+ * output. Measured over 300 real session files, 169,752 records, 1.0 GB: 2,807
+ * ms stepping character by character against 273 ms jumping, agreeing on the
+ * depth of every line. This runs on every line of every file, so a fifth of the
+ * read stage spent on a guard that fires on nothing is not a trade worth making.
+ *
+ * The jump is the only subtle part: a quote ends the string only when the run
+ * of backslashes before it is even, since each pair is one escaped backslash.
+ * An unterminated string returns the depth so far and the parse below reports
+ * the line, which is the right division of labour: this function measures, it
+ * does not validate.
+ */
+export function nestingDepth(text) {
+  let depth = 0;
+  let deepest = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    const c = text.charCodeAt(i);
+    if (c === CH_QUOTE) {
+      let end = i + 1;
+      for (;;) {
+        end = text.indexOf('"', end);
+        if (end < 0) return deepest;
+        let back = end - 1;
+        let slashes = 0;
+        while (back >= 0 && text.charCodeAt(back) === CH_BACKSLASH) {
+          slashes += 1;
+          back -= 1;
+        }
+        if (slashes % 2 === 0) break;
+        end += 1;
+      }
+      i = end;
+    } else if (c === CH_OPEN_BRACE || c === CH_OPEN_BRACKET) {
+      depth += 1;
+      if (depth > deepest) deepest = depth;
+    } else if (c === CH_CLOSE_BRACE || c === CH_CLOSE_BRACKET) {
+      depth -= 1;
+    }
+  }
+  return deepest;
+}
+
+/**
+ * A record nested deeper than deident reads.
  *
  * Every walker in the pipeline is recursive, so this is a property of the
  * input and belongs in the same shape as an unparseable line: exit 3, the file
  * and the line named. Reported as "a bug in deident" it sends the user to file
  * an issue about their own data.
+ *
+ * Two callers, and the difference between them is the point. `depth` given: the
+ * bound above refused it, the same way on every platform. `depth` null: a
+ * RangeError got there first, which now means a runtime whose stack gives out
+ * below MAX_RECORD_DEPTH rather than the ordinary case it used to be. Both are
+ * the same refusal to the user; only the sentence differs.
  */
-export function nestingError(filePath, lineNo, err) {
+export function nestingError(filePath, lineNo, err, depth = null) {
   return new ReadError('a record is nested too deeply to process', {
     detail: {
       file: filePath,
       line: lineNo,
-      parserMessage: err && err.message ? err.message : 'stack exhausted',
+      parserMessage:
+        depth === null
+          ? err && err.message
+            ? err.message
+            : 'stack exhausted'
+          : `nesting depth ${depth} is past the limit of ${MAX_RECORD_DEPTH}`,
       likelyCause:
-        'This record nests JSON thousands of levels deep, which exhausts the stack every walker in deident uses.',
+        depth === null
+          ? 'This record nests JSON deeply enough to exhaust the stack every walker in deident uses.'
+          : `This record nests JSON ${depth} levels deep. deident reads to ${MAX_RECORD_DEPTH}, because every walker in the pipeline is recursive and no real session log comes near it.`,
       remedy: 'Skip the record with --skip-unreadable.',
     },
   });
