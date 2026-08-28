@@ -26,9 +26,13 @@ and tell the person the version it named; nothing else will work.
 
 Three rules that hold for the whole flow:
 
-- **Never pass `--include-denied`, `--skip-unclassified` or `--skip-unknown-types`
-  unless the person has just asked for that specific thing.** Each one turns off
-  a refusal that exists because something went wrong once.
+- **Never pass `--include-denied`, `--skip-unclassified`, `--skip-unknown-types`
+  or `--declare-nothing` unless the person has just asked for that specific
+  thing.** Each one turns off a refusal that exists because something went wrong
+  once. `--declare-nothing` is the sharpest of them: it is the person's own
+  answer about their own identity, it is recorded as theirs, and typing it for
+  them puts back the gap that shipped 21 identity fields. Ask, and if they have
+  values, help them write the file instead (below).
 - **Never write into the repository.** Use `--out <somewhere else>`; the files
   this produces carry real paths and real names.
 - **Add `--json` to every command.** You get the same values as structured data
@@ -106,8 +110,12 @@ the same person maintained by hand.
 ```
 
 A bare string is enough. `kind` is optional and changes only which pseudonym the
-value gets. A missing file is normal and means the two inference tiers alone; a
-malformed one refuses the run and names the row.
+value gets. A malformed file refuses the run and names the row. A **missing** one
+refuses the export outright: the operator has to say something, either by writing
+the file or by running `deident export --declare-nothing` once, which writes it
+with an empty list and the date. The manifest then says which of the two
+happened, so a reader of the archive can tell "declared nothing" from "declared
+and it was applied".
 
 **Ask whether they already keep their own details in a file somewhere.** Many
 people do: a profile JSON they fill forms from, a notes page of passport and

@@ -92,7 +92,13 @@ import { sendDir, manifestPath, writeSendManifest } from './output/sendable.mjs'
 import { writePreview } from './output/preview.mjs';
 import { EXAMPLES_PER_REPORT, MIN_REPLAY_MATCH_CHARS } from './retain/constants.mjs';
 import { loadUserDeny, setUserDeny, missingDenyWarning } from './policy/userdeny.mjs';
-import { loadKnownValues, missingKnownValuesWarning } from './policy/knownvalues.mjs';
+import {
+  loadKnownValues,
+  missingKnownValuesWarning,
+  declarationState,
+  declareNothing,
+  undeclaredRefusal,
+} from './policy/knownvalues.mjs';
 import {
   loadDictionary,
   saveDictionary,
@@ -794,6 +800,25 @@ export async function runExport(flags, env) {
   // token loaded after classify would silently propose the wrong tier for
   // the very directory it exists to protect.
   const knownValues = loadPrivateRules(flags, env, saltDir);
+
+  //  0  the declaration gate. known-values.json is the one list no inference
+  //     reaches, and an export that never had it ships the operator's own
+  //     passport number with all six checks green. Silence stops being an
+  //     answer here: this run either has the file, or the operator says once
+  //     that they have nothing, and the manifest states which. Checked in the
+  //     first second, before twenty minutes of retention, for the same reason
+  //     loadPrivateRules is.
+  if (flags.declareNothing) {
+    const ack = declareNothing(saltDir);
+    report.renderWarning(
+      `recorded in ${ack.file}: you have no literal values of your own to declare. ` +
+        `This archive replaces nothing because you named it, and its manifest says so. ` +
+        `Add values to that file at any time and the next run protects them.`,
+    );
+  }
+  const declaration = declarationState(saltDir);
+  if (!declaration.present) throw undeclaredRefusal(saltDir);
+
   // Read here rather than at step 11, so a dictionary somebody broke while
   // hand-editing refuses in the first second instead of after the corpus has
   // been read, which is more than ten minutes on a few hundred sessions.
@@ -1305,7 +1330,12 @@ export async function runExport(flags, env) {
     loadReads(saltDir),
     serialized.entries.map((e) => ({ id: e.source, mtimeMs: mtimeOf.get(e.source) ?? NaN })),
   );
-  const manifest = buildManifest(retained, decisions, serialized, residue, entities, spanCaveats(allStrings), reviewSessions, reading);
+  // What the operator said about their OWN values, and when. Two runs that
+  // print the same declared-value rows are not the same run if one of them
+  // declared nothing, and until this field existed they were indistinguishable
+  // to anybody who did not watch the run.
+  const declared = Object.freeze({ values: knownValues.length, acknowledgedAt: declaration.acknowledgedAt });
+  const manifest = buildManifest(retained, decisions, serialized, residue, entities, spanCaveats(allStrings), reviewSessions, reading, declared);
   report.renderManifest(manifest);
 
   // 17  the only step that writes an output artifact
@@ -2331,7 +2361,7 @@ export function sanitizeEntryName(name) {
 }
 
 /** Step 16. */
-function buildManifest(retained, decisions, serialized, residue, entities, caveats = { absorbed: 0, cjk: 0 }, held = null, read = null) {
+function buildManifest(retained, decisions, serialized, residue, entities, caveats = { absorbed: 0, cjk: 0 }, held = null, read = null, declared = null) {
   const s = retained.stats;
   const num = (v) => v.toLocaleString('en-US');
   const occurrencesOf = (kind) =>
@@ -2418,6 +2448,10 @@ function buildManifest(retained, decisions, serialized, residue, entities, cavea
     // field renders as no line at all, and a silent manifest is what shipped
     // twice.
     read,
+    // The operator's own declaration: how many values, and the date they said
+    // they had none. Never inferred and never guessed at; see
+    // src/policy/knownvalues.mjs.
+    declared,
     bytes: Buffer.byteLength(serialized.allBytes, 'utf8'),
   });
 }

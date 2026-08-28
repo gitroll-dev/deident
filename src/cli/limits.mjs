@@ -123,6 +123,18 @@ export function limitLines(m = {}) {
     lines.push(`${n(m.escapeArtifacts)} spellings are legible in the raw bytes but not in the decoded`);
     lines.push('  text, because a JSON escape ends where the spelling begins');
   }
+  if (m.declared && m.declared.values === 0) {
+    // The one line in this block that is about a control the operator switched
+    // off rather than one the tool lacks, and the only way a reader of
+    // review.html or the preview file can tell this run from one that declared.
+    // cli-ux §6 forbids listing something the tool DOES handle: it handles
+    // these, and only when they are declared, so the line is conditional on the
+    // declaration and disappears the moment there is one.
+    lines.push('your own literal values: this export declared NONE. A passport or account');
+    lines.push('  number, a birth date, a phone number or the spelling of your name on a');
+    lines.push('  document is replaced only where the semantic pass happened to notice it.');
+    lines.push('  Put them in known-values.json beside the salt and the next run protects them');
+  }
   if (typeof m.residueLine === 'string') {
     lines.push(`known-entity residue: ${m.residueLine}`);
   }

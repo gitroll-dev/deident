@@ -237,6 +237,8 @@ Flags
   --skip-unknown-types     scan/export: drop records of a type deident has
                            never seen, and list them in the manifest
   --include-denied <name>  export: typed confirmation for one denied workspace
+  --declare-nothing        export: record, once, that you have no literal values
+                           of your own to declare in known-values.json
   --selftest               run the fixture suite
   --help, --version
 
@@ -520,6 +522,24 @@ export function renderManifest(m) {
         `    ${n(m.read.entities)} entity drill-down${m.read.entities === 1 ? '' : 's'}, ` +
           'which read lines rather than whole sessions',
       );
+    }
+  }
+  // What the operator declared as their own, which is the one input to this
+  // export that no inference could have produced. Stated for both answers: a
+  // run that declared nothing and a run that declared and got no hits print
+  // the same declared-value rows, and they are not the same claim.
+  if (m.declared) {
+    if (m.declared.values > 0) {
+      say(
+        `    ${n(m.declared.values)} value${m.declared.values === 1 ? '' : 's'} you declared as your own ` +
+          'were loaded from known-values.json',
+      );
+    } else {
+      say(
+        `    you declared no values of your own${m.declared.acknowledgedAt ? `, on ${m.declared.acknowledgedAt.slice(0, 10)}` : ''}: ` +
+          'nothing here was replaced',
+      );
+      say('      because you named it, and no check above can find a value nobody named');
     }
   }
   say(`    ${n(m.userMessages)} user messages`);

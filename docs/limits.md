@@ -234,10 +234,13 @@ So write yours down, in `~/.deident-private/known-values.json`:
 { "values": ["1974-11-03", {"kind": "person", "value": "Aurelio Ferreira-Nkemdirim"}] }
 ```
 
-Local only, never committed. A bare string is enough, `kind` only changes which
-pseudonym the value gets, and no file at all is the normal case. A malformed one
-refuses the run and names the row, because an export that silently declared
-nothing is indistinguishable, in every check deident has, from one that leaked.
+Local only, never committed. A bare string is enough and `kind` only changes
+which pseudonym the value gets. No file at all now refuses the export: silence
+was the normal case for exactly as long as it took to ship this list twice, so
+the run either has the file or you say once, with `--declare-nothing`, that you
+have none, and the manifest states which. A malformed one refuses the run and
+names the row, because an export that silently declared nothing is
+indistinguishable, in every check deident has, from one that leaked.
 The full design is in [`cli-ux.md`](cli-ux.md), section 12.
 
 ## The check deident cannot run on itself

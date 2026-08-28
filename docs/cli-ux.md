@@ -1153,8 +1153,25 @@ a declared spelling protects nothing about a value that is in fact protected.
 Borrowing the kind collapses them into one entity carrying both sources, which
 is also the truer record: the tool found it AND was told about it.
 
-**Failure direction.** Missing is the normal case and means the two inference
-tiers alone. Malformed REFUSES, naming the row (`known-values.json values[3]`),
+**Failure direction.** Missing REFUSES the export. It used to be the normal
+case, and that sentence is what taught every reader to skip the file: for an
+operator whose own identity is in their prose, no file means their own details
+ship, and the only thing between them and that is whether a reader happens to
+notice a number in a wall of text. `export` therefore asks once, and the answer
+is written down. Either the file exists, or `--declare-nothing` writes it with
+an empty `values` array and the date, and the manifest then states which of the
+two happened: `declared: {values, acknowledgedAt}`, plus a line in the
+"NOT protected against" block for the run that declared none. A run that
+declared nothing and a run that declared and found no hits are different facts
+and used to print the same thing. `scan`, `review` and `triage` are unaffected:
+they ship nothing.
+
+`--declare-nothing` refuses over a file that already exists rather than
+overwriting it. Overwriting would drop every value the operator declared and
+keep the export green, which is the failure the gate exists to stop arriving
+through the door built to stop it.
+
+Malformed REFUSES, naming the row (`known-values.json values[3]`),
 the way `loadUserDeny` refuses, and for a sharper version of the same reason: an
 export that silently loaded none of this list is indistinguishable, in every
 check the tool has, from the export that leaked.

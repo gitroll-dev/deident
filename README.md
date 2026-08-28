@@ -16,6 +16,22 @@ and listed but not exported.
 Nothing is translated between harnesses: every record leaves in its own
 harness's shape with the identities replaced.
 
+**Your half of it, and the export refuses without it.** deident infers your
+username, your paths, your git identity and your git remotes from this machine.
+It cannot infer that a string is your name, your birth date, your phone number or
+a document number, because nothing on the machine says so. Those go in
+`~/.deident-private/known-values.json`, the export refuses until you either write
+it or say `--declare-nothing` once, and the manifest records which you chose. The
+gate exists because the alternative already happened: an archive whose six checks
+were all green shipped 21 identity fields in plaintext for want of that file
+([the form](#run-it), [the story](docs/limits.md#deident-cannot-infer-the-list-of-your-own-literal-values)).
+
+**And when it is written, check the file itself.** `deident verify <zip>` reads
+the finished archive and reports what is STILL in it, which is the question "did
+it work" actually asks and the only one the export cannot answer about itself.
+Both leaks this tool has had were found that way, by a person opening the shipped
+bytes and looking for something they already held.
+
 **The promise.** Every byte in the archive is either a value from a vocabulary this
 tool defines in its own source, or a line of prose a person read on screen. The one
 exception is your tool call parameters: 12.2% and 16.3% of the archive on the two
@@ -75,6 +91,7 @@ node deident.js scan              # survey, then tier each workspace in review.m
 node deident.js triage            # optional, cheap: drop whole sessions on sight
 node deident.js export --preview  # writes deident-candidates.txt, the prose to read
 node deident.js export --entities deident-entities.json
+node deident.js verify <the zip>   # what is STILL in it. Read-only.
 ```
 
 **Your first export will refuse, and that is the design.** `scan` proposes `exclude`
@@ -172,7 +189,7 @@ edits have added > 0 with net == 0 (BRIEF §4.2).
 
 ## Development
 
-`node deident.js --selftest` runs 246 fixtures on plain `node:assert`, no framework,
+`node deident.js --selftest` runs 250 fixtures on plain `node:assert`, no framework,
 in `test/selftest.mjs`; each catches a specific bug, named in the fixture. Section
 numbers in the source refer to `BRIEF.md` and `PLAN.md`. Never commit a session log,
 an export, a preview diff or the salt; `.gitignore` covers all of them.
