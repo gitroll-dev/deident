@@ -15,8 +15,8 @@
 // person typing one of them, and every proposal here is `exclude` or
 // `unclassified`. The reason is measured rather than cautious: `scan` writes
 // the proposal into column 1 of review.md, so a proposal read back is
-// indistinguishable from a decision, and two exports shipped on that with all
-// six gates green. See the remote branch below for the whole argument.
+// indistinguishable from a decision, and two exports shipped on that with
+// every gate green. See the remote branch below for the whole argument.
 
 import { execFileSync } from 'node:child_process';
 import { parseRemote } from '../entities/seed.mjs';
@@ -189,7 +189,7 @@ export function proposeTier(group, probeRemote) {
     // column 1 of review.md, so reading the file back was indistinguishable
     // from reading a tier the person had typed. `scan` then `export` therefore
     // admitted every remote-bearing workspace on the machine with nobody
-    // agreeing to anything. Two exports shipped that way with all six gates
+    // agreeing to anything. Two exports shipped that way with every gate
     // green and both leaked, and neither leak was in a work repository.
     //
     // A remote is evidence that a directory is a repository. It is not evidence

@@ -2,7 +2,7 @@
 //
 // `node:zlib`'s crc32 arrived in Node 20.15 and 22.2, and it is used in exactly
 // one place: buildZip, which is step 17 of 17. On an older Node a person reads
-// the corpus, classifies it, substitutes, passes all five gates, and only then
+// the corpus, classifies it, substitutes, passes every gate, and only then
 // gets `TypeError: crc32 is not a function` - which the entry point wraps as
 // "internal error, please report this". That is the shape BRIEF section 2
 // forbids, arriving after ten minutes of work, for something knowable in

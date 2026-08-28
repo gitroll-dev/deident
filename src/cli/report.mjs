@@ -398,17 +398,17 @@ export function renderProgress(done, total, noun) {
  * This printed one green row per check, and the rows were CORRECT on both runs
  * that shipped a leak. Each of them asserts the same thing about a different
  * surface: that the output is consistent with the entity table it was given.
- * None of them asks whether the table is complete, and six rows reading `ok`
- * are read by a person as six independent confirmations of something much
- * bigger than the one claim they actually share. A presentation bug, and the
- * fix is presentational: say the joint claim once, in the words that bound it,
- * and put the remainder on the same screen.
+ * None of them asks whether the table is complete, and a row per check
+ * reading `ok` is read by a person as that many independent confirmations of
+ * something much bigger than the one claim they actually share. A
+ * presentation bug, and the fix is presentational: say the joint claim once,
+ * in the words that bound it, and put the remainder on the same screen.
  *
  * The failure direction does NOT collapse. A green row that turns into an
  * opaque red row is worse than what it replaced: a refusal is followed by a
- * remedy the reader has to act on, and acting starts with knowing which of the
- * five went red. So a run with any failure prints all of them, labelled, in
- * the old shape.
+ * remedy the reader has to act on, and acting starts with knowing which check
+ * went red. So a run with any failure prints all of them, labelled, in the old
+ * shape.
  *
  * `--json` keeps every row in both directions, and gains `unverified`. See
  * machineAdd below and F176 for why the two surfaces diverge here.
@@ -444,7 +444,7 @@ export function renderChecks(checks, remainder = null) {
 }
 
 /**
- * The line the six rows never had. See unverifiedRemainder() for the unit and
+ * The line the rows never had. See unverifiedRemainder() for the unit and
  * for the three units it was chosen over.
  */
 function renderRemainder(r) {
@@ -502,7 +502,20 @@ export function renderManifest(m) {
       // Silence here is what shipped twice. cli-ux §12b: a number printed where
       // no check ran is worse than no number, and so is no line at all where
       // the honest answer is zero.
-      say('      nobody has read any of this archive. The six checks above are internal:');
+      //
+      // It states no count, and cannot. This line said "the six checks above"
+      // while five rows were above it and three more were still to print
+      // below: it runs at pipeline step 16 and the archive those three read
+      // back does not exist until step 17. Counting the rows above it would be
+      // honest and still undersell; counting all of them means knowing whether
+      // trufflehog is on PATH before anything has looked for it. "No check
+      // deident runs" is true either way, and covers the rows below that
+      // "above" never did.
+      //
+      // Nor "internal", which was the old word: trufflehog's detectors are an
+      // external corpus. What is true of every check, that one included, is
+      // that none of them reads these sessions.
+      say('      nobody has read any of this archive, and no check deident runs reads it:');
       say('      none of them can find a name that was never in the entity list');
     }
     if ((m.read.stale ?? 0) > 0) {

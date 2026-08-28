@@ -79,8 +79,8 @@ it: shrink what enters the pipeline rather than harden what scans it.
 The reason is measured. `scan` writes its proposal into column 1 of `review.md`,
 so a proposal read back is indistinguishable from a tier somebody typed:
 `scan` then `export`, with no edit in between, used to admit every
-remote-bearing workspace on the machine. Two exports shipped that way with all
-six gates green and both leaked, and neither leak was in a work repository. A
+remote-bearing workspace on the machine. Two exports shipped that way with every
+gate green and both leaked, and neither leak was in a work repository. A
 git remote is evidence that a directory is a *repository*. It is not evidence
 that its contents may be handed to anyone.
 
@@ -188,7 +188,7 @@ value in a session that is kept at `redact` is protected only if some source
 named it.
 
 There were two such sources and both were inference: tier 0 from machine state,
-tier 1 from prose. A finished archive whose six checks were all green shipped 21
+tier 1 from prose. A finished archive whose checks were all green shipped 21
 identity fields in plaintext, in sessions that were correctly tiered and
 correctly kept. Nothing about the tiers was wrong. The values were simply never
 named.
@@ -235,8 +235,8 @@ Two things follow:
 
 ## 7. Two sentences the manifest now carries, and why they are not gates
 
-Both answer questions the six checks structurally cannot, because every one of
-those checks is an internal-consistency check (cli-ux §12b).
+Both answer questions no check here can, because not one of them compares the
+output against the sessions it came from (cli-ux §12b).
 
 **The bound.** `every session here is from one of 14 workspaces you admitted by
 name; 34 others were never admitted and contributed nothing.` This is what the

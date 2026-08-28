@@ -1107,7 +1107,7 @@ There was no third: a list of literal values the person KNOWS are theirs. So the
 only way a value got protected was for the tool, or a model reading the prose,
 to work it out unaided.
 
-What that cost, measured on a delivered archive whose six checks were all green:
+What that cost, measured on a delivered archive whose checks were all green:
 21 identity fields shipped in plaintext. Passport name orderings and three name
 spellings used across visa documents, a date and place of birth, a household
 registration address in two languages, three country addresses, a driving

@@ -315,7 +315,7 @@ export function seedEntities(env, corpus, opts = {}) {
   // The only source in this file that is not inference, and the last one to
   // run, which is what lets it borrow a kind. Every other seed above answers
   // "what can this machine work out"; this one answers "what has this person
-  // written down as theirs". A finished export with all six gates green shipped
+  // written down as theirs". A finished export with every gate green shipped
   // 21 identity fields that no rule above could reach: document name orderings,
   // a date and place of birth, six addresses, a phone number, a payment-platform
   // account id. See src/policy/knownvalues.mjs.
@@ -427,8 +427,8 @@ const SECRET_RE = new RegExp(
     'ASIA[0-9A-Z]{16}',
     'ntn_[A-Za-z0-9]{20,}',
     // Scheduled-trigger ids. Found by grepping the SHIPPED archive rather than
-    // the report: one sat in plaintext in an export that had passed all six
-    // checks, because the reader listed two of the three trigger ids in the
+    // the report: one sat in plaintext in an export that had passed every
+    // check, because the reader listed two of the three trigger ids in the
     // corpus and nothing else was looking. A fixed prefix plus a 26-character
     // base62 id is a machine's job, and an entity list is precisely the thing
     // that misses one of three.

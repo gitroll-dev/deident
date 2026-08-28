@@ -6,8 +6,8 @@
 // string is mine", so the only way a value got protected was for the tool, or a
 // model reading the prose, to work out on its own that it mattered.
 //
-// The measured cost of having no third source: a finished export with all six
-// gates green shipped 21 identity fields in plaintext. Passport name orderings
+// The measured cost of having no third source: a finished export with every
+// gate green shipped 21 identity fields in plaintext. Passport name orderings
 // and three name spellings used across visa documents, a date and place of
 // birth, a household registration address in two languages, three country
 // addresses, a driving licence address, two banks' address of record, a phone
@@ -186,7 +186,7 @@ export function missingKnownValuesWarning(saltDir, defaultDir) {
 // string is their passport number, so an operator who declares nothing gets
 // NOTHING for it, and every check still reports green, because every check in
 // this tool is an internal-consistency check against a table that value never
-// entered. docs/limits.md carries the measurement: six green checks, 21
+// entered. docs/limits.md carries the measurement: every check green, 21
 // identity fields in plaintext.
 //
 // So the export asks once. Either the file exists, or the operator says once
@@ -243,7 +243,7 @@ export function undeclaredRefusal(saltDir) {
       'One line is a whole file:',
       '  {"values": ["1974-11-03", {"kind": "person", "value": "Nora Lund"}]}',
       '',
-      'An archive whose six checks were all green shipped 21 such fields in plaintext',
+      'An archive whose checks were all green shipped 21 such fields in plaintext',
       'for want of this file. Nothing was written.',
     ],
     remedies: [
