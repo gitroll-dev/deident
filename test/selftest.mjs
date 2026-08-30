@@ -11947,6 +11947,97 @@ const FIXTURES = [
     }
   }],
 
+  // F265. Both the archive that carries no tool calls and the archive that
+  // carries some, because a warning that fires on every export is worth less
+  // than no warning: it trains the reader to skip the line, and the line is
+  // the only place the difference is still cheap to establish.
+  //
+  // The failure it guards against was measured on somebody else's intake, not
+  // imagined here: three donated corpora read as zero tool calls, and only one
+  // was actually missing anything. The other two were a reader counting one
+  // harness's vocabulary against another's. By the time anyone noticed, the
+  // raw logs were on three other machines.
+  ['F265', 'an archive with no tool calls says so, and one with tool calls does not', () => {
+    const exportOnce = (root, out, saltDir) => {
+      assert.equal(runCli(['scan', '--root', root, '--out', out, '--salt-dir', saltDir], CORPUS_USER_ENV).code, 0);
+      setTier(path.join(out, 'review.md'), 'alpha', 'redact');
+      primeSemanticPass(root, out, saltDir, CORPUS_USER_ENV);
+      const r = runCli([
+        'export', '--skip-secret-scan', '--root', root, '--out', out,
+        '--salt-dir', saltDir, '--entities', path.join(root, 'ents.json'),
+      ], CORPUS_USER_ENV);
+      assert.equal(r.code, 0, r.out);
+      return { stdout: r.out, label: fs.readFileSync(manifestPath(out), 'utf8') };
+    };
+
+    // The standard corpus is prose only, which is exactly the shape under test.
+    const bare = tmpdir();
+    writeCorpus(bare);
+    const noTools = exportOnce(bare, path.join(bare, 'out'), path.join(bare, 'salt'));
+    assert.ok(
+      /no tool calls/.test(noTools.stdout),
+      `an archive with no tool calls exported without warning:${NL}${noTools.stdout}`,
+    );
+    assert.ok(
+      noTools.label.includes('ABOUT WHAT IS IN IT'),
+      `the label a person reads before sending does not mention it:${NL}${noTools.label}`,
+    );
+    // It must not read as a refusal or a defect: an all-count-only export has
+    // this shape and is correct, and the note has to leave that reading open.
+    assert.ok(
+      /count-only/.test(noTools.label),
+      `the note does not tell the reader when zero is the correct answer:${NL}${noTools.label}`,
+    );
+    fs.rmSync(bare, { recursive: true, force: true });
+
+    // The same corpus with ONE assistant turn that called a tool. Written
+    // before the scan, so it is a decided session rather than one the export
+    // drops as never reviewed.
+    const withTool = tmpdir();
+    const built = writeCorpus(withTool);
+    const toolSession = '66666666-6666-4666-8666-666666666666';
+    fs.writeFileSync(
+      path.join(withTool, 'projects', 'ws', `${toolSession}.jsonl`),
+      [
+        JSON.stringify({
+          type: 'user',
+          uuid: '00000000-0000-4000-8000-000000000801',
+          sessionId: toolSession,
+          timestamp: '2026-08-20T12:00:00.000Z',
+          cwd: built.cwd,
+          message: { role: 'user', content: [{ type: 'text', text: 'list the files' }] },
+        }),
+        JSON.stringify({
+          type: 'assistant',
+          uuid: '00000000-0000-4000-8000-000000000802',
+          sessionId: toolSession,
+          timestamp: '2026-08-20T12:00:01.000Z',
+          cwd: built.cwd,
+          message: {
+            role: 'assistant',
+            content: [{
+              type: 'tool_use',
+              id: 'toolu_00000000000000000000001',
+              name: 'Bash',
+              input: { command: 'ls' },
+            }],
+          },
+        }),
+      ].join(NL) + NL,
+      'utf8',
+    );
+    const hasTools = exportOnce(withTool, path.join(withTool, 'out'), path.join(withTool, 'salt'));
+    assert.ok(
+      !/no tool calls/.test(hasTools.stdout),
+      `one real tool call and the export still claimed there were none:${NL}${hasTools.stdout}`,
+    );
+    assert.ok(
+      !hasTools.label.includes('ABOUT WHAT IS IN IT'),
+      `the label carries the note on an archive that does record tool calls:${NL}${hasTools.label}`,
+    );
+    fs.rmSync(withTool, { recursive: true, force: true });
+  }],
+
 ];
 
 export function selftest() {
