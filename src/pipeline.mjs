@@ -90,6 +90,7 @@ import { scanForSecrets } from './verify/secretscan.mjs';
 import { sweepDenied } from './verify/sweep.mjs';
 import { writeZip, readZipFile, safeUnlink } from './output/zip.mjs';
 import { sendDir, manifestPath, writeSendManifest } from './output/sendable.mjs';
+import { toolUseNote } from './verify/toolevents.mjs';
 import { writePreview } from './output/preview.mjs';
 import { EXAMPLES_PER_REPORT, MIN_REPLAY_MATCH_CHARS } from './retain/constants.mjs';
 import { loadUserDeny, setUserDeny, missingDenyWarning } from './policy/userdeny.mjs';
@@ -1461,9 +1462,26 @@ export async function runExport(flags, env) {
     // After the archive is on disk, so a run that refused at the on-disk scan
     // does not record identities against an export that never happened.
     rememberEntities(saltDir, dictionary, minted.entities, rewriteUuid.minted);
+    // An archive with no tool calls in it is a chat transcript, and nothing
+    // downstream can tell that from a corpus whose reader did not understand
+    // the harness. Both arrive as the same zero, and the zero is only cheap to
+    // explain HERE, on the machine that still has the raw logs.
+    //
+    // It warns and does not refuse, because zero is legitimate: the
+    // `count-only` tier in docs/privacy-tiers.md ships "no text, no tool calls,
+    // no paths" on purpose, so an export whose workspaces are all count-only
+    // has exactly this shape and is correct. A refusal would make that tier
+    // unusable. §F7 again: the check that refuses a correct export is the check
+    // that gets bypassed.
+    //
+    // Measured over a seven-donor intake elsewhere: three corpora read as zero,
+    // and only one of the three was actually missing anything. That is the
+    // reading this line exists to let a person do before the archive leaves.
+    const toolNote = toolUseNote(retained.stats.toolUses ?? 0, retained.stats.sessions ?? 0);
+    if (toolNote !== null) report.renderWarning(toolNote.warning);
     // Last, because it is a listing of the directory rather than a list of the
     // names this run intended: a name it prints is a name that is on disk.
-    const label = writeSendManifest(outDir, nowStamp());
+    const label = writeSendManifest(outDir, nowStamp(), toolNote === null ? [] : toolNote.lines);
     report.renderWrote(written.path, written.bytes, path.join(saltDir, 'salt'), {
       sendDir: sendDir(outDir),
       manifestPath: label.path,
@@ -1732,6 +1750,7 @@ function retainCorpus(
     toolResults: 0,
     toolResultBytesDropped: 0,
     toolParamBytes: 0,
+    toolUses: 0,
     dedupedPrompts: 0,
     sessions: 0,
     emptiedSessions: 0,

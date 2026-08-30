@@ -163,6 +163,12 @@ export function newRetentionContext(rewriteUuid) {
       toolResults: 0,
       toolResultBytesDropped: 0,
       toolParamBytes: 0,
+      // Calls, not bytes. `toolParamBytes` is already counted below and cannot
+      // answer this: a run of parameterless calls weighs nothing, and a single
+      // Write weighs more than a hundred Bash invocations. What a recipient
+      // needs to know before building on an archive is whether it records any
+      // DOING at all, and that is a count.
+      toolUses: 0,
       dedupedPrompts: 0,
       injectedBytesDropped: 0,
       deniedBlocks: 0,
@@ -409,6 +415,12 @@ function retainBlock(block, ctx) {
       // them ran from an ordinary cwd while naming a deny-listed file. The
       // tool NAME survives, because "an Edit happened" is scoring evidence and
       // carries no path.
+      // Counted before the deny check, because a denied call still happened and
+      // its NAME still ships: the block below keeps `name` and redacts only the
+      // parameters, for the reason stated right above. Counting after would
+      // make an archive of nothing but denied calls look like an archive with
+      // no tool use in it, which is the opposite of true.
+      ctx.stats.toolUses += 1;
       const why = deniedToolUse(block.input);
       if (why !== null) {
         ctx.stats.deniedBlocks += 1;

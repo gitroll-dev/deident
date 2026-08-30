@@ -86,10 +86,20 @@ function listFiles(dir) {
  * run ends. A file the tool never wrote is listed too, under a row that says
  * deident cannot vouch for it: the safe default for a name nothing here knows.
  *
+ * `notes` are lines about the archive's CONTENT rather than its sendability,
+ * printed under their own heading. The terminal says them too, and scrollback
+ * is not a record: this file is the one a person opens when they are about to
+ * send, which is the moment "this carries no tool calls" has to be readable.
+ * Kept as caller-supplied lines rather than as another table here, because this
+ * module's whole job is to decide sendability from a directory listing and it
+ * should not start deciding what is in the archive as well.
+ *
  * @param {string} outDir
- * @returns {{path: string, bytes: number, send: string[], hold: string[]}}
+ * @param {string} stamp
+ * @param {readonly string[]} [notes]
+ * @returns {{path: string, bytes: number, send: string[], hold: string[], notes: string[]}}
  */
-export function writeSendManifest(outDir, stamp) {
+export function writeSendManifest(outDir, stamp, notes = []) {
   const send = listFiles(sendDir(outDir));
   const hold = listFiles(outDir).filter((n) => n !== MANIFEST_FILENAME);
   const width = Math.max(12, ...hold.map((n) => n.length));
@@ -108,6 +118,12 @@ export function writeSendManifest(outDir, stamp) {
   } else {
     lines.push('  DO NOT SEND, and do not commit:');
     for (const name of hold) lines.push(`    ${name.padEnd(width)}  ${why(name)}`);
+  }
+  // Between the listing and the closing instruction, so it is read before the
+  // decision rather than after it.
+  if (notes.length > 0) {
+    lines.push('', '  ABOUT WHAT IS IN IT:');
+    for (const note of notes) lines.push(`    ${note}`);
   }
   // The closing line names `send/` only when `send/` exists. A remedy naming a
   // path that is not on disk is worse than no remedy, and a preview run writes
@@ -128,5 +144,5 @@ export function writeSendManifest(outDir, stamp) {
   const target = manifestPath(outDir);
   fs.mkdirSync(outDir, { recursive: true });
   fs.writeFileSync(target, body, 'utf8');
-  return { path: target, bytes: Buffer.byteLength(body, 'utf8'), send, hold };
+  return { path: target, bytes: Buffer.byteLength(body, 'utf8'), send, hold, notes: [...notes] };
 }
