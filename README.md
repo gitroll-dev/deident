@@ -10,9 +10,13 @@ Slice 1, depth-0 Claude Code sessions by default, MIT licensed.
 `claude-code` is the default and the only one with a default location, because
 only its layout was read on a real installation. Every other reader takes
 `--root` and nothing else, so deident never names a directory it guessed.
-`cursor` and `gemini-cli` record no working directory anywhere in
-their logs, and deident admits material one directory at a time, so those can be read
-and listed but not exported.
+**Only `claude-code` exports today.** Every reader can `scan`, and each has a
+retention schema in `schemas/`, but the export re-serializes each line and refuses
+if it does not come back byte for byte. Claude Code's writer emits canonical
+`JSON.stringify`; every other harness measured writes a space after `:` and `,`,
+so 15,714 of 15,714 lines fail that check on a Codex corpus in perfect health.
+`cursor` and `gemini-cli` are blocked twice over, recording no working directory
+anywhere in their logs while deident admits material one directory at a time.
 Nothing is translated between harnesses: every record leaves in its own
 harness's shape with the identities replaced.
 
@@ -37,9 +41,14 @@ tool defines in its own source, or a line of prose a person read on screen. The 
 exception is your tool call parameters: 12.2% and 16.3% of the archive on the two
 corpora measured so far, and the export prints the figure for yours.
 
-**The cost, plainly.** A consumer whose scoring reads tool result CONTENT gets
-less than it did. Results leave as shape alone, so a pipeline that greps result
-bodies for build failures loses that input. Scoring that reads SHAPE is unaffected.
+**The cost, plainly, and one consumer has now measured it.** Results leave as
+shape alone, so a pipeline that greps result bodies for build failures loses that
+input; scoring that reads SHAPE is unaffected. On 2026-08-29 an assessment engine
+ran three independent manipulations of the tool material in its own corpus:
+removing 92.2% of it and restoring 130% more landed within 0.002 of each other,
+neither clearing its own null, and removing tool material *raised* two of its
+axes. One consumer, one set of axes, so deident has not changed what it ships
+([the numbers](docs/limits.md#the-parameters-of-your-tool-calls-are-read-by-nobody)).
 
 ## What deident does NOT protect against
 
@@ -205,7 +214,7 @@ edits have added > 0 with net == 0 (BRIEF §4.2).
 
 ## Development
 
-`node deident.js --selftest` runs 261 fixtures on plain `node:assert`, no framework,
+`node deident.js --selftest` runs 262 fixtures on plain `node:assert`, no framework,
 in `test/selftest.mjs`; each catches a specific bug, named in the fixture. Section
 numbers in the source refer to `BRIEF.md` and `PLAN.md`. Never commit a session log,
 an export, a preview diff or the salt; `.gitignore` covers all of them.
