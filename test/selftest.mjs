@@ -12125,6 +12125,47 @@ const FIXTURES = [
     fs.rmSync(silent, { recursive: true, force: true });
   }],
 
+  // F267. Measured on the live corpus 2026-08-30. escapeBearing proves a
+  // backslash literal from a run followed by a character no escape may take,
+  // and a Windows path proves itself through its drive letter. Substituting the
+  // path's PREFIX deletes that proof: the walker runs to a fixpoint, so pass 2
+  // sees a string whose only remaining runs are the separators, reads them as
+  // escapes, and declines a match pass 1 would have made. A declared
+  // third-party name shipped in `<pseudonym>\results-clean\<name>.json`, and
+  // the residual scan refused the export instead of the substituter fixing it:
+  // silent under-substitution, which is the direction that matters here.
+  ['F267', 'an earlier pass may not delete the proof that a path separator is literal', () => {
+    const withDrive = `<event>C:${BS}Users${BS}mo${BS}proj${BS}results-clean${BS}nadia.json</event>`;
+    const substituted = `<event>ZW_WORKSPACE_3379111${BS}results-clean${BS}nadia.json</event>`;
+    const at = withDrive.lastIndexOf('nadia');
+    const atSub = substituted.lastIndexOf('nadia');
+
+    assert.equal(
+      startsOnEscapeBody(withDrive, at),
+      false,
+      'the drive letter proves the separators literal, so the name is matchable',
+    );
+    assert.equal(
+      startsOnEscapeBody(substituted, atSub),
+      false,
+      'and replacing the prefix with a token may not make the same name unmatchable',
+    );
+
+    // The token is the proof, not the shape of the rest of the line: an
+    // ordinary identifier before a run stays unproven, so `line one\nadia`
+    // keeps reading as an escape and F187 is not weakened.
+    assert.equal(
+      startsOnEscapeBody(`line one${BS}nadia`, 9),
+      true,
+      'a plain word before the run is not proof, and the escape still wins',
+    );
+    assert.equal(
+      startsOnEscapeBody(`MY_CONSTANT_12${BS}nadia`, 15),
+      true,
+      'an identifier that merely looks minted is not one',
+    );
+  }],
+
 ];
 
 export function selftest() {
