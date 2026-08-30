@@ -12,7 +12,7 @@
 // implemented as direct character tests rather than a regex so there is no
 // `\b` in the file to drift back to.
 
-import { pseudonymGuardPattern } from '../entities/pseudonym.mjs';
+import { pseudonymGuardPattern, pseudonymAtEndPattern } from '../entities/pseudonym.mjs';
 import { isCjkOnly, SPACELESS_RE } from '../entities/variants.mjs';
 
 // Every letter and digit, in any script, minus the scripts that are written
@@ -296,6 +296,13 @@ const ESCAPE_BODY_RE = /[0bfnrtuvx]/;
  * literal backslash and leaves every escape single, so a run followed by a
  * non-escapable character stays a run followed by a non-escapable character.
  */
+// A minted pseudonym sitting immediately left of a backslash run. Longest
+// token this can match is a namespace, a kind and a counter, so 40 characters
+// of lookback is generous; a bounded window keeps escapeBearing linear over the
+// 19 MB blob residualScan hands it.
+const PSEUDONYM_AT_END = pseudonymAtEndPattern();
+const PSEUDONYM_LOOKBACK = 40;
+
 function escapeBearing(s) {
   // One slot, because both callers ask about the same string many times over:
   // substituteString walks one string to the end, residualScan sweeps one
@@ -310,6 +317,15 @@ function escapeBearing(s) {
     while (s[i + run] === '\\') run += 1;
     const next = s[i + run];
     if (next === undefined || !ESCAPABLE_RE.test(next)) {
+      bearing = false;
+      break;
+    }
+    // A pseudonym immediately to the left is the proof an earlier pass deleted.
+    // `C:\Users\me\proj\out\nadia.json` proves itself literal through
+    // `\U`; once the prefix through `proj` becomes one token, the only runs left
+    // are `\r` `\r` and the string reads as escaped text, so pass 2 declines a
+    // match pass 1 would have made. The token is where the drive letter was.
+    if (PSEUDONYM_AT_END.test(s.slice(Math.max(0, i - PSEUDONYM_LOOKBACK), i))) {
       bearing = false;
       break;
     }

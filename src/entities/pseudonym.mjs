@@ -84,6 +84,29 @@ export function pseudonymGuardPattern(namespace = null) {
   return new RegExp(`${prefix}(?:${NAMESPACE_PREFIXES.join('|')})_\\d+`, 'gu');
 }
 
+/**
+ * A pseudonym ENDING at the end of the window, for the escape-bearing test.
+ *
+ * escapeBearing asks whether a string's backslashes are literal, and it proves
+ * it from a run followed by a character no escape may take. A path proves
+ * itself that way through its drive letter: `C:\Users\...` carries `\U`.
+ * Substituting the path's prefix DELETES that proof, so a later pass over the
+ * same string reads the separators as escapes and declines matches the first
+ * pass would have made. Measured on the live corpus 2026-08-30: a declared
+ * third-party name in `<pseudonym>\results-clean\<name>.json` was left in
+ * the output, and the residual scan refused the export rather than the
+ * substituter fixing it.
+ *
+ * A minted token immediately left of a run is that missing proof: deident put
+ * it where a path prefix was, so the separator after it is literal.
+ */
+export function pseudonymAtEndPattern(namespace = null) {
+  // The namespace is optional here on purpose: escapeBearing is a property of
+  // one string and never learns which namespace this run minted.
+  const prefix = namespace ? `${escapeRe(namespace)}_` : '(?:[A-Za-z0-9]{1,8}_)?';
+  return new RegExp(`(?:^|[^A-Za-z0-9_])${prefix}(?:${NAMESPACE_PREFIXES.join('|')})_\\d+$`, 'u');
+}
+
 export function pseudonymScanPattern(namespace = null) {
   const prefix = namespace ? `${escapeRe(namespace)}_` : '';
   return new RegExp(`${prefix}(?:${NAMESPACE_PREFIXES.join('|')})_\\d+(?![A-Za-z0-9_])`, 'gu');
