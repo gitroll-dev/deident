@@ -77,6 +77,17 @@ ordinary paths are what this surface actually holds. It is still a surface no
 reader checks, and a third-party name that appears only there cannot be
 declared.
 
+**And one consumer has now measured what it buys them: nothing.** On 2026-08-29
+an assessment engine ran three independent manipulations of the tool material
+in its own corpus. Removing 92.2% of it moved a person-level ICC to 0.0182;
+restoring 130% more moved it to 0.0170; neither cleared a 0.05 bar, and a
+separate run found that removing tool material *raised* two of its axes. Two
+opposite interventions landing within 0.002 of each other is an absent effect,
+not a small one. That is one consumer on one set of axes, so it is recorded
+here rather than acted on: deident still ships these parameters, and the case
+for dropping them now rests on a measurement rather than on taste. A second
+independent result would settle it.
+
 ## A name touching a letter or a digit is left alone
 
 The boundary rule is `(?<!\w)X(?!\w)`, with an underscore counting as a boundary

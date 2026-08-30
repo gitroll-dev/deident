@@ -90,7 +90,7 @@ import { scanForSecrets } from './verify/secretscan.mjs';
 import { sweepDenied } from './verify/sweep.mjs';
 import { writeZip, readZipFile, safeUnlink } from './output/zip.mjs';
 import { sendDir, manifestPath, writeSendManifest } from './output/sendable.mjs';
-import { toolUseNote } from './verify/toolevents.mjs';
+import { toolUseNote, userTurnNote } from './verify/toolevents.mjs';
 import { writePreview } from './output/preview.mjs';
 import { EXAMPLES_PER_REPORT, MIN_REPLAY_MATCH_CHARS } from './retain/constants.mjs';
 import { loadUserDeny, setUserDeny, missingDenyWarning } from './policy/userdeny.mjs';
@@ -1477,11 +1477,19 @@ export async function runExport(flags, env) {
     // Measured over a seven-donor intake elsewhere: three corpora read as zero,
     // and only one of the three was actually missing anything. That is the
     // reading this line exists to let a person do before the archive leaves.
-    const toolNote = toolUseNote(retained.stats.toolUses ?? 0, retained.stats.sessions ?? 0);
-    if (toolNote !== null) report.renderWarning(toolNote.warning);
+    //
+    // Two notes, and the second is the one that matters more. An archive with
+    // prose and no tools is a usable donation; an archive with tools and no
+    // prose carries nothing anyone can attribute to the person, and it used to
+    // export in silence while its harmless mirror image got a warning.
+    const notes = [
+      toolUseNote(retained.stats.toolUses ?? 0, retained.stats.sessions ?? 0),
+      userTurnNote(retained.stats.userMessages ?? 0, retained.stats.sessions ?? 0),
+    ].filter((n) => n !== null);
+    for (const n of notes) report.renderWarning(n.warning);
     // Last, because it is a listing of the directory rather than a list of the
     // names this run intended: a name it prints is a name that is on disk.
-    const label = writeSendManifest(outDir, nowStamp(), toolNote === null ? [] : toolNote.lines);
+    const label = writeSendManifest(outDir, nowStamp(), notes.flatMap((n) => n.lines));
     report.renderWrote(written.path, written.bytes, path.join(saltDir, 'salt'), {
       sendDir: sendDir(outDir),
       manifestPath: label.path,

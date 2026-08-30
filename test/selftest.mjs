@@ -12038,6 +12038,93 @@ const FIXTURES = [
     fs.rmSync(withTool, { recursive: true, force: true });
   }],
 
+  // F266. The mirror of F265, and the reason it exists is that F265 was aimed
+  // at the wrong number. Measured on a real intake: a donor whose 373 sessions
+  // were excluded for carrying no tool detail yields a user turn in all 373 of
+  // them and was scorable throughout, while three manipulations of the tool
+  // material moved the person signal by nothing that cleared its own null.
+  //
+  // So the two archives are not symmetric. Prose without tools is usable and
+  // gets a warning it does not need; tools without prose is NOT and exported
+  // in silence. Both directions are pinned here because a warning that fires
+  // on the harmless case and stays quiet on the harmful one is worse than none.
+  ['F266', 'an archive with no user turns says so, and prose without tools does not trip it', () => {
+    const exportOnce = (root) => {
+      const out = path.join(root, 'out');
+      const saltDir = path.join(root, 'salt');
+      assert.equal(runCli(['scan', '--root', root, '--out', out, '--salt-dir', saltDir], CORPUS_USER_ENV).code, 0);
+      setTier(path.join(out, 'review.md'), 'alpha', 'redact');
+      primeSemanticPass(root, out, saltDir, CORPUS_USER_ENV);
+      const r = runCli([
+        'export', '--skip-secret-scan', '--root', root, '--out', out,
+        '--salt-dir', saltDir, '--entities', path.join(root, 'ents.json'),
+      ], CORPUS_USER_ENV);
+      assert.equal(r.code, 0, r.out);
+      return { stdout: r.out, label: fs.readFileSync(manifestPath(out), 'utf8') };
+    };
+
+    // The standard corpus is prose only: user turns, no tool calls. It must
+    // warn about the tools and say NOTHING about user turns.
+    const prose = tmpdir();
+    writeCorpus(prose);
+    const proseOnly = exportOnce(prose);
+    assert.ok(
+      /no tool calls/.test(proseOnly.stdout),
+      `the tool-call note stopped firing:${NL}${proseOnly.stdout}`,
+    );
+    assert.ok(
+      !/no user turns/.test(proseOnly.stdout),
+      `an archive full of user prose was told it has no user turns:${NL}${proseOnly.stdout}`,
+    );
+    fs.rmSync(prose, { recursive: true, force: true });
+
+    // The inverse: one session whose only records are assistant turns, and the
+    // per-line cwd gate keeps nothing else. Built as its own corpus rather than
+    // added to the standard one, because the standard one's user prose would
+    // mask exactly what is under test.
+    const silent = tmpdir();
+    const projects = path.join(silent, 'projects', 'ws');
+    fs.mkdirSync(projects, { recursive: true });
+    const cwd = ['C:', 'Users', CORPUS_USER, 'projects', 'alpha'].join(BS);
+    const sid = '77777777-7777-4777-8777-777777777777';
+    const rows = [0, 1, 2].map((i) => ({
+      type: 'assistant',
+      uuid: `00000000-0000-4000-8000-00000000070${i}`,
+      sessionId: sid,
+      timestamp: '2026-08-20T13:00:00.000Z',
+      cwd,
+      message: {
+        role: 'assistant',
+        content: [{
+          type: 'tool_use',
+          id: `toolu_0000000000000000000000${i}`,
+          name: 'Bash',
+          input: { command: 'ls' },
+        }],
+      },
+    }));
+    fs.writeFileSync(path.join(projects, `${sid}.jsonl`), rows.map((r) => JSON.stringify(r)).join(NL) + NL, 'utf8');
+    fs.writeFileSync(
+      path.join(silent, 'ents.json'),
+      JSON.stringify({ entities: [{ kind: 'person', spellings: ['Nora Lund'], confidence: 'high' }] }),
+      'utf8',
+    );
+    const noProse = exportOnce(silent);
+    assert.ok(
+      /no user turns/.test(noProse.stdout),
+      `an archive with no human prose exported without warning:${NL}${noProse.stdout}`,
+    );
+    assert.ok(
+      noProse.label.includes('ABOUT WHAT IS IN IT'),
+      `the label a person reads before sending does not mention it:${NL}${noProse.label}`,
+    );
+    assert.ok(
+      !/no tool calls/.test(noProse.stdout),
+      `three real tool calls and the export still claimed there were none:${NL}${noProse.stdout}`,
+    );
+    fs.rmSync(silent, { recursive: true, force: true });
+  }],
+
 ];
 
 export function selftest() {
