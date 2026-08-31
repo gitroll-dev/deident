@@ -282,7 +282,23 @@ export function renderTypes(r) {
   say('  Nothing here has been written or changed; this command only reads.');
   say('');
   say('  Decide them:   file an issue against deident with the list above');
-  say(`  Or drop them:  ${INVOCATION} export --skip-unknown-types`);
+  say('');
+  // NAME THE COST, because this line has been read as a remedy.
+  //
+  // It used to print "Or drop them: --skip-unknown-types" with nothing else, and
+  // that is what people did: the skill that drives this tool says never to pass
+  // the flag, and the tool then recommended it by name at the exact moment the
+  // refusal fired. Two donors' Codex exports reached a study with every shell
+  // call missing, because shell lives inside `event_msg` and `event_msg` was one
+  // of the shapes dropped. Nobody chose to lose it; they followed the suggestion
+  // in front of them.
+  say('  There is a flag that drops them instead, and it is not offered here on');
+  say('  purpose. A whole record TYPE is not a stray field: on one harness the');
+  say('  shell commands, the tool arguments and the sub-agent traffic all live');
+  say('  inside two container types, so dropping an unreviewed container can');
+  say('  remove most of what a session did while the export still looks complete.');
+  say('  If you have read the list above and decided each one is genuinely');
+  say('  disposable, the flag is documented in --help.');
   say('');
 }
 
