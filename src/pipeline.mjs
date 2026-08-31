@@ -1794,6 +1794,7 @@ function retainCorpus(
     toolResultBytesDropped: 0,
     toolParamBytes: 0,
     toolUses: 0,
+    toolUsesWithArgs: 0,
     dedupedPrompts: 0,
     sessions: 0,
     emptiedSessions: 0,
@@ -2454,6 +2455,8 @@ function buildManifest(retained, decisions, serialized, residue, entities, cavea
     sessions: s.sessions,
     workspaces: s.workspaces.size,
     userMessages: s.userMessages,
+    toolUses: s.toolUses ?? 0,
+    toolUsesWithArgs: s.toolUsesWithArgs ?? 0,
     zeros: Object.freeze([
       { label: 'lines of code', suppressed: `${num(s.codeLinesCounted)} counted, none included` },
       { label: 'images', suppressed: `${num(s.images)} replaced with placeholders` },

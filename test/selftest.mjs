@@ -12464,6 +12464,19 @@ const FIXTURES = [
     assert.ok(typeof m.version === 'string' && m.version.length > 0, 'the manifest does not say which deident wrote it');
     assert.equal(m.undecidedTypesChecked, true, '"checked and found none" and "nobody checked" must not read the same');
 
+    // TWO tool numbers, and both must be present even when equal. "Are there
+    // calls" is not "is the channel readable": measured on real archives the
+    // same day, a Codex export reads 216 calls with 216 carrying arguments and
+    // an opencode export reads 1,361 with ZERO, because its `tool` part is
+    // shape-only and keeps every name with no input. One number cannot tell
+    // those apart, and a neighbouring project lost an evening to exactly that.
+    assert.equal(typeof m.toolCalls, 'number', 'the manifest stopped reporting tool calls');
+    assert.equal(typeof m.toolCallsWithArguments, 'number', 'the manifest reports calls without saying how many are readable');
+    assert.ok(
+      m.toolCallsWithArguments <= m.toolCalls,
+      `more calls carry arguments than exist: ${m.toolCallsWithArguments} of ${m.toolCalls}`,
+    );
+
     // The line it exists for. This corpus has a type nobody decided and the run
     // dropped it on request, so the archive has to say which and how many.
     assert.ok(

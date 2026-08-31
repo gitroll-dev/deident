@@ -44,6 +44,16 @@ export function archiveManifest(manifest, agent, version) {
     sessions: s.sessions ?? null,
     workspaces: s.workspaces ?? null,
     userMessages: s.userMessages ?? null,
+    // TWO numbers, not one, and the pair is the point.
+    //
+    // "Are there tool calls" is not "is the tool channel readable". A
+    // neighbouring project spent an evening on that distinction: a stripped
+    // export reported 125,034 calls of which 125,043 had lost their command, so
+    // a `> 0` test called the broken half healthy. deident can produce that
+    // archive itself -- opencode's `tool` part is shape-only and keeps every
+    // name with no arguments -- so a recipient gets both and can tell.
+    toolCalls: s.toolUses ?? null,
+    toolCallsWithArguments: s.toolUsesWithArgs ?? null,
     // The line this file exists for. Empty means every record type in the
     // corpus had a reviewed decision; non-empty means these types were seen and
     // dropped without one, and the count is how many records went with them.

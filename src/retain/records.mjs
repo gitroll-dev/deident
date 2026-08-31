@@ -209,6 +209,15 @@ export function newRetentionContext(rewriteUuid) {
       // needs to know before building on an archive is whether it records any
       // DOING at all, and that is a count.
       toolUses: 0,
+      // Of those, how many still carry the parameters that say WHAT the call
+      // touched. `toolUses > 0` is not the same as a readable tool channel, and
+      // a neighbouring project spent an evening on exactly that distinction: a
+      // stripped export reported 125,034 calls of which 125,043 had lost their
+      // command, so testing "are there calls" called the broken half healthy.
+      // deident can produce that archive itself -- opencode's `tool` part is
+      // shape-only and keeps every name with no arguments at all -- so the two
+      // are counted apart and the archive manifest reports both.
+      toolUsesWithArgs: 0,
       dedupedPrompts: 0,
       injectedBytesDropped: 0,
       deniedBlocks: 0,
@@ -539,6 +548,7 @@ function retainCodexPayload(payload, ctx, where) {
     for (const f of fields) if (payload[f] !== undefined) args[f] = payload[f];
     ctx.stats.toolResultBytesDropped += Math.max(0, payloadBytes(payload) - payloadBytes(args));
     ctx.stats.toolUses += 1;
+    if (Object.keys(args).length > 0) ctx.stats.toolUsesWithArgs += 1;
     out = prune({
       type: name,
       call_id: typeof payload.call_id === 'string' ? ctx.rewriteUuid(payload.call_id) : null,
@@ -783,7 +793,12 @@ function retainBlock(block, ctx) {
       // make an archive of nothing but denied calls look like an archive with
       // no tool use in it, which is the opposite of true.
       ctx.stats.toolUses += 1;
+      // Counted only when the parameters actually leave. A denied call keeps
+      // its NAME and loses its input, which is the readable-versus-present
+      // distinction this pair exists for.
       const why = deniedToolUse(block.input);
+      if (why === null && block.input !== null && typeof block.input === 'object'
+        && Object.keys(block.input).length > 0) ctx.stats.toolUsesWithArgs += 1;
       if (why !== null) {
         ctx.stats.deniedBlocks += 1;
         const bytes = Buffer.byteLength(JSON.stringify(block.input ?? null), 'utf8');
