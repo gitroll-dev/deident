@@ -42,27 +42,58 @@ import {
 // The prose that used to sit above each literal, explaining WHY a type was
 // dropped, moved into the schema file's `rationale` block so the reason
 // travels with the decision instead of with the code that reads it.
-const SCHEMA = loadSchema('claude-code', schemaOverlayPath());
+// THE AGENT IS CHOSEN AT RUNTIME, NOT AT IMPORT TIME.
+//
+// This used to be `loadSchema('claude-code', ...)` at module scope, so
+// `--agent codex` selected a reader and then judged its records against Claude
+// Code's vocabulary. Every Codex record type came back UNKNOWN, an export
+// refused, and the only way past was `--skip-unknown-types`, which drops them.
+// `schemas/codex/2026-08.json` has said `event_msg: keep` the whole time and was
+// never read.
+//
+// What it cost, measured downstream: two donors' exports reached a research
+// corpus with ZERO shell records, because every shell call in Codex lives inside
+// `event_msg` / `response_item`. Their verification could not be scored at all.
+// That is exactly the harm `pipeline.mjs` warns about two hundred lines below --
+// "a silent drop is how the highest-value user gets quietly deleted" -- produced
+// by this file rather than caught by it.
+let SCHEMA = loadSchema('claude-code', schemaOverlayPath());
 const namesWith = (obj, decision) =>
   Object.entries(obj).filter(([, d]) => d === decision).map(([name]) => name);
 
-const TOP_LEVEL = SCHEMA.recordTypes;
+let TOP_LEVEL = SCHEMA.recordTypes;
+
+/**
+ * Point the retention decisions at one agent's vocabulary. Call once, before any
+ * record is retained; `pipeline.mjs` does it as soon as the corpus resolves.
+ */
+export function useAgentSchema(agent) {
+  SCHEMA = loadSchema(agent, schemaOverlayPath());
+  TOP_LEVEL = SCHEMA.recordTypes;
+  ATTACHMENT_KEEP = Object.freeze(namesWith(SCHEMA.attachmentTypes ?? {}, 'keep'));
+  ATTACHMENT_DROP = Object.freeze(namesWith(SCHEMA.attachmentTypes ?? {}, 'drop'));
+  SYSTEM_KEEP = Object.freeze(namesWith(SCHEMA.systemSubtypes ?? {}, 'keep'));
+  SYSTEM_DROP = Object.freeze(namesWith(SCHEMA.systemSubtypes ?? {}, 'drop'));
+  BLOCK_DECISIONS = SCHEMA.contentBlocks;
+  RETENTION_TABLE = buildTable();
+  return SCHEMA;
+}
 
 // PLAN §3.2. Only three of the 26 carry user text.
-const ATTACHMENT_KEEP = Object.freeze(namesWith(SCHEMA.attachmentTypes, 'keep'));
-const ATTACHMENT_DROP = Object.freeze(namesWith(SCHEMA.attachmentTypes, 'drop'));
+let ATTACHMENT_KEEP = Object.freeze(namesWith(SCHEMA.attachmentTypes ?? {}, 'keep'));
+let ATTACHMENT_DROP = Object.freeze(namesWith(SCHEMA.attachmentTypes ?? {}, 'drop'));
 
 // PLAN §3.1 row 9: keep compact_boundary only. away_summary is prose naming
 // third parties who never consented (§F2) and is dropped even though it is
 // user-adjacent.
-const SYSTEM_KEEP = Object.freeze(namesWith(SCHEMA.systemSubtypes, 'keep'));
-const SYSTEM_DROP = Object.freeze(namesWith(SCHEMA.systemSubtypes, 'drop'));
+let SYSTEM_KEEP = Object.freeze(namesWith(SCHEMA.systemSubtypes ?? {}, 'keep'));
+let SYSTEM_DROP = Object.freeze(namesWith(SCHEMA.systemSubtypes ?? {}, 'drop'));
 
 // `shape-only` is a third decision beside keep and drop, and it exists for one
 // block type. Calling it `keep` would put a reviewed decision in this table
 // that no longer describes what happens: the block survives and its payload
 // does not. See retainBlock's tool_result case for the measurement.
-const BLOCK_DECISIONS = SCHEMA.contentBlocks;
+let BLOCK_DECISIONS = SCHEMA.contentBlocks;
 
 /**
  * The prose half of the two tables above: which fields of a RETAINED record
@@ -1062,12 +1093,24 @@ function unknown(what, where, kind = null, shape = null) {
   });
 }
 
-export const RETENTION_TABLE = Object.freeze({
-  topLevel: TOP_LEVEL,
-  attachmentKeep: ATTACHMENT_KEEP,
-  attachmentDrop: ATTACHMENT_DROP,
-  systemKeep: SYSTEM_KEEP,
-  systemDrop: SYSTEM_DROP,
-  blocks: BLOCK_DECISIONS,
-  proseFields: PROSE_FIELDS,
-});
+/**
+ * The decisions as data, for the reports that show them.
+ *
+ * A `let` with a live binding rather than a frozen const, because the table is
+ * rebuilt when `useAgentSchema` points the retention at a different harness. As
+ * a frozen const it captured Claude Code's vocabulary at import time and kept it
+ * whatever `--agent` said, which is what made every Codex record read UNKNOWN.
+ */
+export let RETENTION_TABLE = buildTable();
+
+function buildTable() {
+  return Object.freeze({
+    topLevel: TOP_LEVEL,
+    attachmentKeep: ATTACHMENT_KEEP,
+    attachmentDrop: ATTACHMENT_DROP,
+    systemKeep: SYSTEM_KEEP,
+    systemDrop: SYSTEM_DROP,
+    blocks: BLOCK_DECISIONS,
+    proseFields: PROSE_FIELDS,
+  });
+}

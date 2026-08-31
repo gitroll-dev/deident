@@ -70,6 +70,7 @@ import {
   rewriteUuidsInRecord,
   RETENTION_TABLE,
   PROSE_FIELDS,
+  useAgentSchema,
 } from './retain/records.mjs';
 import {
   checkSubstitution,
@@ -283,6 +284,7 @@ export async function runVerify(flags, env) {
 
 export async function runTypes(flags, env) {
   const corpus = resolveCorpus(env, flags.root, flags.agent);
+  useAgentSchema(corpus.agent.id);
   const agent = corpus.agent;
   const table = RETENTION_TABLE;
 
@@ -407,6 +409,7 @@ export async function runScan(flags, env) {
   // the very directory it exists to protect.
   const knownValues = loadPrivateRules(flags, env, saltDir);
   const corpus = resolveCorpus(env, flags.root, flags.agent);
+  useAgentSchema(corpus.agent.id);
 
   const loaded = surveyCorpus(corpus, flags);
 
@@ -592,6 +595,7 @@ export async function runReview(flags, env) {
   // the very directory it exists to protect.
   const knownValues = loadPrivateRules(flags, env, saltDir);
   const corpus = resolveCorpus(env, flags.root, flags.agent);
+  useAgentSchema(corpus.agent.id);
   const loaded = surveyCorpus(corpus, flags);
   const reviewPath = path.join(outDir, REVIEW_FILENAME);
   const problems = [];
@@ -652,6 +656,7 @@ export async function runTriage(flags, env) {
   const reviewPath = path.join(outDir, REVIEW_FILENAME);
   const reviewText = readReviewText(reviewPath, outDir);
   const corpus = resolveCorpus(env, flags.root, flags.agent);
+  useAgentSchema(corpus.agent.id);
   const pathById = new Map(corpus.files.map((f) => [f.sessionId, f.path]));
 
   return flags.apply
@@ -828,6 +833,7 @@ export async function runExport(flags, env) {
 
   //  1  resolve the corpus
   const corpus = resolveCorpus(env, flags.root, flags.agent);
+  useAgentSchema(corpus.agent.id);
 
   //  2  read every file, checking I1 on untouched input
   //     3 rides along with 2, because it is the only step that reads raw line

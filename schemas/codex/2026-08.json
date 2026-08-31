@@ -19,23 +19,25 @@
     "event_msg": "keep",
     "turn_context": "drop",
     "session_meta": "drop",
-    "compacted": "keep"
+    "compacted": "keep",
+    "world_state": "drop",
+    "inter_agent_communication_metadata": "drop"
   },
   "contentBlocks": {
     "message": "keep",
     "function_call": "keep",
-    "function_call_output": "shape-only",
+    "function_call_output": "keep",
     "reasoning": "keep",
     "custom_tool_call": "keep",
-    "custom_tool_call_output": "shape-only",
+    "custom_tool_call_output": "keep",
     "ghost_snapshot": "drop",
     "web_search_call": "drop",
     "token_count": "drop",
-    "exec_command_end": "shape-only",
+    "exec_command_end": "keep",
     "agent_reasoning": "keep",
-    "mcp_tool_call_end": "shape-only",
+    "mcp_tool_call_end": "keep",
     "agent_message": "keep",
-    "patch_apply_end": "shape-only",
+    "patch_apply_end": "keep",
     "task_started": "drop",
     "user_message": "keep",
     "task_complete": "keep",
@@ -86,6 +88,9 @@
     "contentBlocks.thread_rolled_back": "3 payloads, 339 bytes. A num_turns counter.",
     "contentBlocks.view_image_tool_call": "1 payload, 225 bytes. A call_id and an absolute path; the one measured named a screenshot under the account's Documents folder, with a date and time in the filename. That is the pdf_reference situation on the Claude Code side: a path is an identifier, and a screenshot filename is often a dated one.",
     "contentBlocks.input_text": "599 blocks inside `message` payloads. The user's text and the developer role's.",
-    "contentBlocks.output_text": "471 blocks inside `message` payloads. The assistant's text."
+    "contentBlocks.output_text": "471 blocks inside `message` payloads. The assistant's text.",
+    "2026-08-31": "Five tool-result blocks moved from shape-only to keep, on the owner's ruling. shape-only discarded the ARGUMENTS as well as the output, and the arguments carry the document ids that decide whether a read was a re-read of this session's own writing. A research corpus measured one donor at 125,034 shell calls with zero command text and a read-back channel of exactly zero, both artifacts of this decision rather than of his behaviour. The substitution pass already rewrites paths and ids inside kept strings, so keeping these is a redaction problem the tool already solves, not a new exposure.",
+    "world_state": "Config, not conversation. It carries the workspace snapshot: AGENTS.md in full, environment definitions and absolute home paths. Same class as turn_context and session_meta, both already dropped. Nothing in it is a turn or a tool call, so dropping it costs no measurable behaviour and removes a large path surface.",
+    "inter_agent_communication_metadata": "A routing flag, {trigger_turn: false}. No content of any kind."
   }
 }
