@@ -10,6 +10,19 @@ import { readSession as readJsonl } from '../reader.mjs';
 import { resolveLineCwd as trackLineCwd } from '../cwdtrack.mjs';
 
 /**
+ * One record of THIS harness's own shape, minimal, for the guard that checks
+ * `retains` against the code.
+ *
+ * A typed line with the turn under `message.content`.
+ *
+ * Declared by the harness rather than built by the guard, because a guard that
+ * constructs a probe has to know each shape, and knowing one shape and applying
+ * it to every harness is the defect the guard exists to catch. It did exactly
+ * that in its first version.
+ */
+export const shapeSample = Object.freeze({ type: 'user', message: { role: 'user', content: [{ type: 'text', text: 'hi' }] } });
+
+/**
  * A retention branch exists for this harness's own record shape.
  *
  * Declared rather than inferred, and F269 checks the declaration against

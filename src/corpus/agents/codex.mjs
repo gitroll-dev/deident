@@ -22,6 +22,19 @@
 import { readSession as readJsonl } from '../reader.mjs';
 import { walkSessions } from './shared.mjs';
 
+/**
+ * One record of THIS harness's own shape, minimal, for the guard that checks
+ * `retains` against the code.
+ *
+ * A `{timestamp, type, payload}` line whose real record is the payload's own type.
+ *
+ * Declared by the harness rather than built by the guard, because a guard that
+ * constructs a probe has to know each shape, and knowing one shape and applying
+ * it to every harness is the defect the guard exists to catch. It did exactly
+ * that in its first version.
+ */
+export const shapeSample = Object.freeze({ timestamp: '2026-01-01T00:00:00Z', type: 'event_msg', payload: { type: 'user_message', message: 'hi' } });
+
 /** A retention branch exists: retainCodexLine, added once the schema had one. */
 export const retains = true;
 

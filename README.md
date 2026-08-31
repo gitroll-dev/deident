@@ -35,12 +35,15 @@ path, so a pipeline that greps result bodies for build failures loses that input
 the only one with a default location), `codex`, `cursor`, `opencode`,
 `gemini-cli`. Every other reader takes `--root` and nothing else, so deident never
 names a directory it guessed, and nothing is translated between harnesses: every
-record leaves in its own harness's shape with the identities replaced. **Only
-`claude-code` exports today** — the export re-serializes each line and refuses if
-it does not come back byte for byte, and every other harness measured writes a
-space after `:` and `,`, so 15,714 of 15,714 lines fail that check on a Codex
-corpus in perfect health. `cursor` and `gemini-cli` are blocked twice over,
-recording no working directory anywhere in their logs.
+record leaves in its own harness's shape with the identities replaced.
+
+**`claude-code`, `codex` and `opencode` export; `cursor` and `gemini-cli` are
+read, listed and counted but not exported**, because their logs record no
+working directory anywhere and deident admits material one directory at a time.
+An export refuses on that in its first second rather than three stages later,
+and the same is true of any harness that gains a reader before it gains a
+retention branch: each one declares which it has, and the suite checks the claim
+against the code.
 
 ## Install
 

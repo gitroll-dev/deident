@@ -23,13 +23,30 @@
 import { readDocument, walkSessions, constantCwd } from './shared.mjs';
 
 /**
- * No retention branch, and this one is the dangerous shape: opencode names
- * its record types `user` and `assistant`, which are Claude Code's names
- * too. Its records reach the same table and are judged by another
- * harness's vocabulary -- the exact defect this field exists to make
- * visible. It states a cwd, so nothing else stops it.
+ * One record of THIS harness's own shape, minimal, for the guard that checks
+ * `retains` against the code.
+ *
+ * No `type` at the top level at all: the role is on `info`, which is why a
+ * guard that builds `{type: role}` tests Claude Code's branch and not this one.
+ *
+ * Declared by the harness rather than built by the guard, because a guard that
+ * constructs a probe has to know each shape, and knowing one shape and applying
+ * it to every harness is the defect the guard exists to catch. It did exactly
+ * that in its first version.
  */
-export const retains = false;
+export const shapeSample = Object.freeze({ info: { role: 'user', id: 'm1', sessionID: 's1' }, parts: [{ type: 'text', text: 'hi' }] });
+
+/**
+ * A retention branch exists: retainOpencodeRecord.
+ *
+ * It was `false`, and the reason is worth keeping: opencode names its record
+ * types `user` and `assistant`, which are Claude Code's names too, so before
+ * the branch existed its records reached the same table and were judged by
+ * another harness's vocabulary. The branch is chosen by SHAPE -- a record with
+ * `info.role` is a turn, one without is the envelope -- because opencode
+ * carries no `type` field to switch on.
+ */
+export const retains = true;
 
 export const id = 'opencode';
 export const label = 'opencode';

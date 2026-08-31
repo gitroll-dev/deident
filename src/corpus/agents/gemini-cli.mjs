@@ -25,6 +25,19 @@
 
 import { readDocument, walkSessions, constantCwd } from './shared.mjs';
 
+/**
+ * One record of THIS harness's own shape, minimal, for the guard that checks
+ * `retains` against the code.
+ *
+ * A message out of the one JSON document the file is.
+ *
+ * Declared by the harness rather than built by the guard, because a guard that
+ * constructs a probe has to know each shape, and knowing one shape and applying
+ * it to every harness is the defect the guard exists to catch. It did exactly
+ * that in its first version.
+ */
+export const shapeSample = Object.freeze({ id: '1', timestamp: '2026-01-01T00:00:00Z', type: 'user', content: 'hi' });
+
 /** No retention branch. Blocked on cwd first (see `cwdSource`). */
 export const retains = false;
 

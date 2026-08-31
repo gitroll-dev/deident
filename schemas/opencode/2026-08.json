@@ -16,7 +16,8 @@
   },
   "recordTypes": {
     "user": "keep",
-    "assistant": "keep"
+    "assistant": "keep",
+    "session": "drop"
   },
   "contentBlocks": {
     "text": "keep",
@@ -25,7 +26,9 @@
     "patch": "drop",
     "file": "drop",
     "step-start": "drop",
-    "step-finish": "drop"
+    "step-finish": "drop",
+    "subtask": "keep",
+    "compaction": "drop"
   },
   "rationale": {
     "recordTypes.user": "101 messages. Carries the user's prompts as text parts; 198837 bytes of text across the corpus are on user messages. The message-level info holds an agent name, a model, a tools map and a summary, none of which is a turn.",
@@ -36,7 +39,10 @@
     "contentBlocks.patch": "76 parts, 29431 bytes. The name says diff and it was checked: there is no diff. The part is {hash, files}, a git object hash plus an array of absolute file paths. So it carries an identifier and a file listing and nothing a reader would read, and the file listing is the attachmentTypes.directory hazard on the Claude Code side, project and client vocabulary at its most concentrated. The agent's actual authored change survives as the apply_patch call under `tool`.",
     "contentBlocks.file": "5 parts, 72683 bytes. Checked for file bodies: there are none. The part is {mime, filename, url, source} where url is a file:// URL under the account's home directory and source.text.value is the @-mention span the user typed, with byte offsets. A path, a filename and a mention offset, which is the pdf_reference and already_read_file situation reached independently: a path is an identifier. The 72683 bytes are the envelope, not content.",
     "contentBlocks.step-start": "930 parts, 182814 bytes. A single `snapshot` field holding a git commit sha. A marker with an identifier on it.",
-    "contentBlocks.step-finish": "929 parts, 303861 bytes. A finish-reason enum, the same git sha, a cost float, and a token counter block. Counters and enums."
+    "contentBlocks.step-finish": "929 parts, 303861 bytes. A finish-reason enum, the same git sha, a cost float, and a token counter block. Counters and enums.",
+    "recordTypes.session": "The envelope the reader puts at record 1, one per file. Keys measured over 617 real sessions: id, slug, projectID, directory, parentID, title, version, summary, permission, time. `directory` is the cwd the whole session ran in and is read by resolveLineCwd before retention; `title` and `summary` are model-written labels for the session, and `slug` is derived from one. Identifiers and a label, no turn and no tool call, which is the same class as Codex session_meta and is dropped for the same reason. The cwd survives where it is used, on the tier decision, not in the archive.",
+    "contentBlocks.subtask": "199 parts over 617 sessions. Delegation to a child agent. opencode does not export the child transcript, so this is the only place the delegation is visible at all, which is the same reason Codex keeps collab_agent_spawn_end.",
+    "contentBlocks.compaction": "14 parts. A marker that a compaction happened. Codex writes the compaction CONTENT under a different name and this one carries none."
   },
   "findings": {
     "sessionInfoUndecided": "The document-level `info` header has no entry in this vocabulary, because it is not a typed record and inventing a name for it here would put a key into a map of role values and make the vocabulary lie about its own shape. It still holds identifiers, and they are named here so the reader PR cannot miss them: id, slug, projectID, `directory` as an absolute path carrying the account name, `title` which is the user's opening request in the clear, version, a summary block, a permission list, and time. Thirty of the sixty documents also carry parentID, which links a subsession to its parent. Whoever writes the opencode reader decides this header explicitly or it ships whole. This key is prose for a human; the loader reads only the four decision sections and ignores it.",

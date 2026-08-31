@@ -10372,14 +10372,27 @@ const FIXTURES = [
   }],
 
   ['F236', 'the opencode vocabulary is two roles and seven part types, and the heavy one is shape-only', () => {
-    // Measured over 60 opencode documents, 1034 messages: assistant 933,
-    // user 101; parts tool 1794, step-start 930, step-finish 929,
-    // reasoning 803, text 257, patch 76, file 5.
+    // Re-censused over 617 opencode documents, 16,884 messages, when the
+    // retention branch was built: assistant 15,093, user 1,791; parts tool
+    // 22,354, step-start 14,865, step-finish 14,846, reasoning 13,289, text
+    // 3,522, patch 2,187, subtask 199, file 19, compaction 14. The first two
+    // names were the whole vocabulary on a 60-document sample; a corpus ten
+    // times larger held two more, which is the argument for re-censusing
+    // rather than trusting a sample that once passed.
     const s = loadSchema('opencode');
-    assert.deepEqual(s.recordTypes, { user: 'keep', assistant: 'keep' }, 'opencode recordTypes drifted from the measured roles');
+    assert.deepEqual(
+      s.recordTypes,
+      // `session` is the envelope the reader puts at record 1: the file's own
+      // id, slug, directory, title and summary. Identifiers and a label, no
+      // turn and no tool call, so it is dropped like Codex session_meta -- and
+      // it is DECIDED rather than skipped, so it shows up in `deident types`.
+      { user: 'keep', assistant: 'keep', session: 'drop' },
+      'opencode recordTypes drifted from the measured roles',
+    );
     assert.deepEqual(s.contentBlocks, {
       text: 'keep', reasoning: 'keep', tool: 'shape-only', patch: 'drop',
       file: 'drop', 'step-start': 'drop', 'step-finish': 'drop',
+      subtask: 'keep', compaction: 'drop',
     }, 'opencode contentBlocks drifted from the measured part types');
     assert.deepEqual(s.attachmentTypes, {}, 'opencode grew an attachment vocabulary');
     assert.deepEqual(s.systemSubtypes, {}, 'opencode grew a system-subtype vocabulary');
@@ -12303,26 +12316,31 @@ const FIXTURES = [
       useAgentSchema(id);
       assert.ok(kept.length > 0, `${id} keeps no record type, so its schema decides nothing`);
 
-      // (2) The declaration is TRUE in the direction it claims. An agent that
-      //     says it can be exported must have a retention branch for every
-      //     record type its own schema keeps: not "does not crash", but "is
-      //     not refused as a type nobody decided".
-      for (const type of kept) {
+      // (2) The declaration is TRUE in the direction it claims, tested on a
+      //     record of the harness's OWN shape.
+      //
+      //     The first version of this built `{ type }` from the schema and
+      //     handed it to retention. That works for the two harnesses whose
+      //     records carry a top-level `type` and silently tests the WRONG
+      //     branch for one that does not: opencode puts its role on `info`, so
+      //     `{ type: 'user' }` reaches Claude Code's turn handler and passes
+      //     while proving nothing. A guard that knows one shape and applies it
+      //     to every harness is the defect this guard exists to catch, so the
+      //     sample comes from the harness.
+      assert.ok(agent.shapeSample, `${id} declares no record of its own shape for this check`);
+      if (agent.retains) {
         const ctx = newRetentionContext((u) => u);
         let refusedAsUnknown = false;
         try {
-          retainRecord({ type }, ctx, { file: `${id}.jsonl`, line: 1 });
+          retainRecord(agent.shapeSample, ctx, { file: `${id}.jsonl`, line: 1 });
         } catch (err) {
-          // Any other refusal is this record being empty, which is fine: the
-          // question is only whether the TYPE has somewhere to go.
-          refusedAsUnknown = err instanceof RefusalError && /top-level record type/.test(err.reason);
+          refusedAsUnknown = err instanceof RefusalError
+            && /top-level record type|a record with no type|role "|part type "/.test(err.reason);
         }
-        if (agent.retains) {
-          assert.ok(
-            !refusedAsUnknown,
-            `${id} declares it can be exported and its own record type "${type}" has no retention branch`,
-          );
-        }
+        assert.ok(
+          !refusedAsUnknown,
+          `${id} declares it can be exported and a record of its own shape has no retention branch`,
+        );
       }
     }
 
@@ -12339,41 +12357,49 @@ const FIXTURES = [
     //     change rather than a quiet one.
     assert.deepEqual(
       AGENT_IDS.filter((id) => selectAgent(id).retains === true).sort(),
-      ['claude-code', 'codex'],
+      ['claude-code', 'codex', 'opencode'],
       'the set of exportable harnesses changed',
     );
     assert.deepEqual(
       noRetentionAgents().sort(),
-      ['cursor', 'gemini-cli', 'opencode'],
+      ['cursor', 'gemini-cli'],
       'the set of readable-but-not-exportable harnesses changed',
     );
 
-    // (4b) WHERE the gate sits, asserted by behaviour rather than by reading
-    //      the source, because both wrong placements pass a source grep. In
-    //      `classify` it refuses a SCAN with a message saying scans work; after
-    //      tier admission it makes a person read review.md and choose
-    //      workspaces before telling them the harness has no export path.
+    // (4b) WHERE the gate sits. Asserted on the two function bodies rather
+    //      than by running a non-retaining harness, because there is no longer
+    //      one to run: cursor and gemini-cli refuse earlier still, on cwd.
+    //
+    //      Both wrong placements this fixture was written for are caught here.
+    //      In `classify`, which scan and export share, the gate refused a SCAN
+    //      with a message whose own last line says scans work. Behind the
+    //      declaration gate, it asked a person to write out their passport
+    //      number for a harness with no export path to spend it on.
     {
-      const root = tmpdir();
-      const logs = path.join(root, 'logs');
-      fs.mkdirSync(logs, { recursive: true });
-      fs.writeFileSync(
-        path.join(logs, 'a.jsonl'),
-        `${JSON.stringify({ info: { id: 's1', directory: '/tmp/x' }, messages: [{ info: { role: 'user' }, parts: [{ type: 'text', text: 'hi' }] }] })}${NL}`,
-        'utf8',
-      );
-      const out = path.join(root, 'out');
-      const saltDir = path.join(root, 'salt');
-      const scan = runCli(['scan', '--agent', 'opencode', '--root', logs, '--out', out, '--salt-dir', saltDir]);
-      assert.equal(scan.code, 0, `a harness with no retention branch cannot be scanned:${NL}${scan.out}`);
-      const exp = runCli(['export', '--agent', 'opencode', '--root', logs, '--out', out, '--salt-dir', saltDir]);
-      assert.notEqual(exp.code, 0, 'the export of a harness with no retention branch succeeded');
-      assert.match(exp.out, /cannot export them yet/, `the export refused for some other reason:${NL}${exp.out}`);
+      const pipelineSrc = fs.readFileSync(fileURLToPath(new URL('../src/pipeline.mjs', import.meta.url)), 'utf8');
+      const body = (name) => {
+        const at = pipelineSrc.indexOf(`function ${name}(`);
+        assert.ok(at !== -1, `${name} is gone; this check needs rewriting, not deleting`);
+        const next = pipelineSrc.indexOf(`${NL}function `, at + 1);
+        const alsoNext = pipelineSrc.indexOf(`${NL}export async function `, at + 1);
+        const ends = [next, alsoNext].filter((n) => n !== -1);
+        return pipelineSrc.slice(at, ends.length > 0 ? Math.min(...ends) : pipelineSrc.length);
+      };
+      const classifyBody = body('classify');
       assert.ok(
-        !/review\.md/.test(exp.out),
-        `the refusal arrived after asking the person to edit review.md:${NL}${exp.out}`,
+        !/retains !== true/.test(classifyBody),
+        'the retention gate is back in classify, which scan shares: it would refuse a scan while telling the reader scans work',
       );
-      fs.rmSync(root, { recursive: true, force: true });
+      const exportBody = body('runExport');
+      const gate = exportBody.indexOf('retains !== true');
+      const declaration = exportBody.indexOf('undeclaredRefusal');
+      const tiers = exportBody.indexOf('exportableTiers');
+      assert.ok(gate !== -1, 'the export path stopped gating on the retention declaration');
+      assert.ok(
+        gate < declaration,
+        'the retention gate moved behind the declaration gate, so a harness that cannot export asks for the operator’s own literal values first',
+      );
+      assert.ok(gate < tiers, 'the retention gate moved behind tier admission');
     }
 
     // (5) Every `args-only` name in every schema has a field named for it.

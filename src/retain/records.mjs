@@ -227,6 +227,18 @@ export function retainRecord(rec, ctx, where) {
     throw unknown('a record that is not a JSON object', where, 'a non-object record');
   }
 
+  // A harness whose records carry no top-level `type` is decided by its own
+  // branch, not by this lookup: opencode puts the role on `info`, so asking
+  // TOP_LEVEL about `undefined` refuses a healthy record and names a type that
+  // does not exist. Routed before the lookup rather than inside it, so the
+  // lookup keeps meaning exactly one thing.
+  if (rec.type === undefined && rec.info !== null && typeof rec.info === 'object') {
+    const out = retainOpencodeRecord(rec, ctx, where);
+    if (out === null) return DROPPED;
+    ctx.stats.kept += 1;
+    return { keep: true, record: out };
+  }
+
   const decision = TOP_LEVEL[rec.type];
   if (decision === undefined) throw unknown(`top-level record type "${rec.type}"`, where, `type ${rec.type}`, rec);
   if (decision !== 'keep') {
@@ -244,6 +256,115 @@ export function retainRecord(rec, ctx, where) {
 }
 
 const DROPPED = Object.freeze({ keep: false, record: null });
+
+/**
+ * The fields of an opencode message's `info` that are kept.
+ *
+ * Named without the harness in it, and that is not a style choice: F244 forbids
+ * every harness's env-var prefix anywhere under src/, comments included, and it
+ * is deliberately total rather than clever. The first draft of THIS comment
+ * named the string it was explaining and failed the check. It lives beside
+ * retainOpencodeRecord, which is the only caller, so the context is there.
+ *
+ * An allowlist, not a denylist, so a field opencode adds later is dropped until
+ * somebody decides it rather than shipped because nobody noticed. Measured over
+ * 617 real sessions, `info` carries eighteen names; these are the ones that are
+ * a fixed vocabulary or a number.
+ *
+ * `path` is NOT here and is the reason this is an allowlist: it is an object of
+ * absolute directories on every one of the 15,091 assistant messages, and it
+ * would have shipped silently under any "keep the envelope" rule.
+ */
+const MESSAGE_INFO_KEEP = Object.freeze(['role', 'modelID', 'providerID', 'mode', 'agent', 'variant', 'finish', 'model']);
+
+/**
+ * One opencode record, in opencode's own shape.
+ *
+ * Two shapes, told apart by what they carry rather than by a name: the file's
+ * envelope, which the reader puts first and which states the session's one
+ * directory, and a message, which is `{info, parts}` with the role on `info`.
+ */
+function retainOpencodeRecord(rec, ctx, where) {
+  const info = rec.info;
+  const role = typeof info.role === 'string' ? info.role : null;
+
+  // The envelope. Its decision is recorded under `session` in the schema
+  // rather than assumed here, so dropping it is a reviewed choice like every
+  // other type and shows up in `deident types`.
+  if (role === null) {
+    const decision = TOP_LEVEL.session;
+    if (decision === undefined) throw unknown('the opencode session envelope', where, 'session', rec);
+    ctx.stats.dropped += 1;
+    return null;
+  }
+
+  const decision = TOP_LEVEL[role];
+  if (decision === undefined) throw unknown(`opencode message role "${role}"`, where, `role ${role}`, info);
+  if (decision !== 'keep') {
+    ctx.stats.dropped += 1;
+    return null;
+  }
+
+  const parts = Array.isArray(rec.parts) ? retainOpencodeParts(rec.parts, ctx, where) : [];
+  if (parts.length === 0) return null;
+
+  const kept = {};
+  for (const f of MESSAGE_INFO_KEEP) if (info[f] !== undefined) kept[f] = info[f];
+  if (typeof info.id === 'string') kept.id = ctx.rewriteUuid(info.id);
+  if (typeof info.sessionID === 'string') kept.sessionID = ctx.rewriteUuid(info.sessionID);
+  if (typeof info.parentID === 'string') kept.parentID = ctx.rewriteUuid(info.parentID);
+  const usage = retainUsage(info.tokens);
+  if (usage !== null) kept.tokens = usage;
+
+  if (role === 'user') ctx.stats.userMessages += 1;
+  else ctx.stats.assistantMessages += 1;
+
+  return prune({ info: kept, parts });
+}
+
+/** The parts of one opencode message, by the decision each part type carries. */
+function retainOpencodeParts(parts, ctx, where) {
+  const out = [];
+  for (const part of parts) {
+    if (part === null || typeof part !== 'object') continue;
+    const name = part.type;
+    if (typeof name !== 'string') throw unknown('an opencode part with no type', where, 'part', part);
+    const decision = BLOCK_DECISIONS[name];
+    if (decision === undefined) throw unknown(`opencode part type "${name}"`, where, `part ${name}`, part);
+    if (decision === 'drop') continue;
+    if (decision === 'keep') {
+      out.push(part);
+      continue;
+    }
+    if (decision === 'shape-only') {
+      // The tool NAME survives, as it does on every other harness: "an Edit
+      // happened" is scoring evidence and carries no path. `state` holds the
+      // call's input AND its output, 22,354 of each measured, and both go.
+      const bytes = payloadBytes(part.state);
+      // BOTH counters, and the second is the one that was missing. `tool` is
+      // one part carrying a call and its result, so it is a tool USE as well as
+      // a tool result, and counting only the result made a 40-session archive
+      // report "no tool calls" while shipping the name of every one of them.
+      // The warning that said so is three commits old and was itself written
+      // against two harnesses' shapes; this is the same defect one level in.
+      ctx.stats.toolUses += 1;
+      ctx.stats.toolResults += 1;
+      ctx.stats.toolResultBytesDropped += bytes;
+      out.push(prune({
+        type: name,
+        tool: typeof part.tool === 'string' ? part.tool : null,
+        callID: typeof part.callID === 'string' ? ctx.rewriteUuid(part.callID) : null,
+        status: typeof part.state?.status === 'string' ? part.state.status : null,
+        result_bytes: bytes,
+      }));
+      continue;
+    }
+    throw unknown(`opencode part type "${name}" carries the decision "${decision}", which this reader does not apply`, where, `part ${name}`, part);
+  }
+  return out;
+}
+
+
 
 /**
  * The field that holds a call's ARGUMENTS, for the payloads Codex merged.
@@ -460,6 +581,7 @@ function retainByType(rec, ctx, where) {
     case 'event_msg':
     case 'compacted':
       return retainCodexLine(rec, ctx, where);
+
     default:
       throw unknown(`top-level record type "${rec.type}"`, where, null, rec);
   }
