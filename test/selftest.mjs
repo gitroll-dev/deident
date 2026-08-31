@@ -10275,13 +10275,23 @@ const FIXTURES = [
     const recordTypes = {
       response_item: 'keep', event_msg: 'keep', turn_context: 'drop',
       session_meta: 'drop', compacted: 'keep',
+      // Two line types the first measurement did not reach, added 2026-08-31
+      // with the corpus they came from. Both are config rather than
+      // conversation: world_state carries AGENTS.md in full plus absolute home
+      // paths, the same class as turn_context, and the metadata line is the
+      // single flag `{trigger_turn: false}`.
+      world_state: 'drop', inter_agent_communication_metadata: 'drop',
     };
     const contentBlocks = {
-      message: 'keep', function_call: 'keep', function_call_output: 'shape-only',
-      reasoning: 'keep', custom_tool_call: 'keep', custom_tool_call_output: 'shape-only',
+      // Five moved shape-only -> keep on 2026-08-31, on the owner's ruling: the
+      // shape-only decision discarded a tool result's ARGUMENTS along with its
+      // output, and the arguments are what say which document a read was of.
+      // The reason is in the schema's own note.
+      message: 'keep', function_call: 'keep', function_call_output: 'keep',
+      reasoning: 'keep', custom_tool_call: 'keep', custom_tool_call_output: 'keep',
       ghost_snapshot: 'drop', web_search_call: 'drop',
-      token_count: 'drop', exec_command_end: 'shape-only', agent_reasoning: 'keep',
-      mcp_tool_call_end: 'shape-only', agent_message: 'keep', patch_apply_end: 'shape-only',
+      token_count: 'drop', exec_command_end: 'keep', agent_reasoning: 'keep',
+      mcp_tool_call_end: 'keep', agent_message: 'keep', patch_apply_end: 'keep',
       task_started: 'drop', user_message: 'keep', task_complete: 'keep',
       collab_waiting_end: 'drop', collab_agent_spawn_end: 'keep', collab_close_end: 'keep',
       entered_review_mode: 'drop', exited_review_mode: 'keep', turn_aborted: 'drop',
@@ -10298,11 +10308,20 @@ const FIXTURES = [
     assert.deepEqual(s.attachmentTypes, {}, 'codex grew an attachment vocabulary it has no records for');
     assert.deepEqual(s.systemSubtypes, {}, 'codex grew a system-subtype vocabulary it has no records for');
 
-    // The three payload types that are mostly tool output, and nothing else,
-    // are the shape-only ones. Naming them here is what stops a later edit
-    // from quietly widening a 13 MB payload to `keep`.
+    // This assertion exists to stop a later edit from quietly widening a 13 MB
+    // payload to `keep`, and on 2026-08-31 it fired on exactly that. The
+    // widening was deliberate -- the owner ruled that shape-only was discarding
+    // a tool call's ARGUMENTS along with its output, and the arguments are what
+    // say which document a read was of -- so the expectation is updated rather
+    // than the guard removed, and the new value is stated as a value rather
+    // than computed, so the next widening has to come through here too.
+    //
+    // Codex now has NO shape-only payloads. Every tool result ships whole,
+    // which on the measured corpus is mcp_tool_call_end at 7.1 MB and
+    // exec_command_end at 6.1 MB, output included. That is a different floor
+    // from the Claude Code path, where tool_result is cut entirely.
     const shapeOnly = Object.entries(s.contentBlocks).filter(([, d]) => d === 'shape-only').map(([n]) => n).sort();
-    assert.deepEqual(shapeOnly, ['custom_tool_call_output', 'exec_command_end', 'function_call_output', 'mcp_tool_call_end', 'patch_apply_end'].sort(), 'the shape-only set changed');
+    assert.deepEqual(shapeOnly, [], 'the shape-only set changed');
   }],
 
   ['F235', 'the cursor vocabulary is four names, and turn_ended is left undecided on purpose', () => {
