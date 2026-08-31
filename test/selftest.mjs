@@ -10377,7 +10377,7 @@ const FIXTURES = [
     );
   }],
 
-  ['F236', 'the opencode vocabulary is two roles and seven part types, and the heavy one is shape-only', () => {
+  ['F236', 'the opencode vocabulary covers every part type, and the merged one carries its call and not its result', () => {
     // Re-censused over 617 opencode documents, 16,884 messages, when the
     // retention branch was built: assistant 15,093, user 1,791; parts tool
     // 22,354, step-start 14,865, step-finish 14,846, reasoning 13,289, text
@@ -10396,16 +10396,22 @@ const FIXTURES = [
       'opencode recordTypes drifted from the measured roles',
     );
     assert.deepEqual(s.contentBlocks, {
-      text: 'keep', reasoning: 'keep', tool: 'shape-only', patch: 'drop',
+      text: 'keep', reasoning: 'keep', tool: 'args-only', patch: 'drop',
       file: 'drop', 'step-start': 'drop', 'step-finish': 'drop',
       subtask: 'keep', compaction: 'drop',
     }, 'opencode contentBlocks drifted from the measured part types');
     assert.deepEqual(s.attachmentTypes, {}, 'opencode grew an attachment vocabulary');
     assert.deepEqual(s.systemSubtypes, {}, 'opencode grew a system-subtype vocabulary');
 
-    // `tool` is 94% of the corpus by weight and 8.7 MB of it is state.output.
-    // It is the only part type that is mostly payload nobody reads.
-    assert.equal(s.contentBlocks.tool, 'shape-only', 'the one opencode part carrying tool output stopped being shape-only');
+    // `tool` is one part holding the whole round trip, and it was shape-only,
+    // which dropped the call as well as the result. Measured over 617 real
+    // documents: state.input 7.79 MB against state.output 152.96 MB, so the
+    // arguments are 4.8% of the pair. The owner's 2026-08-31 ruling on Codex
+    // was that the arguments carry the id deciding whether a read was a
+    // re-read, and the reason is harness-independent; leaving this one
+    // shape-only scored the same corpus two ways and made an opencode donation
+    // impossible to place against a reference that keeps its arguments.
+    assert.equal(s.contentBlocks.tool, 'args-only', 'the merged opencode part stopped carrying its call');
 
     // `reasoning` was checked against real records rather than assumed to be
     // empty the way Claude Code's thinking is: 803 parts, 101174 bytes of

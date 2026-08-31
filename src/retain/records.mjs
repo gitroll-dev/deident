@@ -345,10 +345,11 @@ function retainOpencodeParts(parts, ctx, where) {
       out.push(part);
       continue;
     }
-    if (decision === 'shape-only') {
-      // The tool NAME survives, as it does on every other harness: "an Edit
-      // happened" is scoring evidence and carries no path. `state` holds the
-      // call's input AND its output, 22,354 of each measured, and both go.
+    if (decision === 'args-only' || decision === 'shape-only') {
+      // One part holds the whole round trip. `args-only` keeps `state.input`,
+      // the call; `shape-only` keeps neither half. Both keep the tool NAME,
+      // as every other harness does: "an Edit happened" is scoring evidence
+      // and carries no path.
       const bytes = payloadBytes(part.state);
       // BOTH counters, and the second is the one that was missing. `tool` is
       // one part carrying a call and its result, so it is a tool USE as well as
@@ -359,12 +360,20 @@ function retainOpencodeParts(parts, ctx, where) {
       ctx.stats.toolUses += 1;
       ctx.stats.toolResults += 1;
       ctx.stats.toolResultBytesDropped += bytes;
+      const args = {};
+      if (decision === 'args-only') {
+        for (const f of ARGS_FIELD[name] ?? []) {
+          if (part.state?.[f] !== undefined) args[f] = part.state[f];
+        }
+        if (Object.keys(args).length > 0) ctx.stats.toolUsesWithArgs += 1;
+      }
       out.push(prune({
         type: name,
         tool: typeof part.tool === 'string' ? part.tool : null,
         callID: typeof part.callID === 'string' ? ctx.rewriteUuid(part.callID) : null,
         status: typeof part.state?.status === 'string' ? part.state.status : null,
-        result_bytes: bytes,
+        ...args,
+        result_bytes: bytes - payloadBytes(args),
       }));
       continue;
     }
@@ -402,6 +411,11 @@ const ARGS_FIELD = Object.freeze({
   CommandExecution: ['command', 'cwd', 'exit_code', 'parsed_cmd'],
   McpToolCall: ['server', 'tool', 'arguments'],
   Extension: ['kind', 'query'],
+  // opencode's merged part. Its halves sit under `state` rather than on the
+  // record, so retainOpencodeParts reads `part.state[f]`; the name is here so
+  // the guard that checks every args-only decision has mechanics still covers
+  // it, which is the whole reason that guard exists.
+  tool: ['input'],
 });
 
 /**

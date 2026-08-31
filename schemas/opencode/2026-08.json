@@ -11,7 +11,8 @@
     "contentBlocks": {
       "keep": "carried",
       "drop": "never written",
-      "shape-only": "structure kept, content discarded"
+      "shape-only": "structure kept, content discarded",
+      "args-only": "the call's own arguments are carried; whatever the same record holds of the result is discarded. For a harness that merges a call with its output into one record, which is the only reason this decision exists."
     }
   },
   "recordTypes": {
@@ -22,7 +23,7 @@
   "contentBlocks": {
     "text": "keep",
     "reasoning": "keep",
-    "tool": "shape-only",
+    "tool": "args-only",
     "patch": "drop",
     "file": "drop",
     "step-start": "drop",
@@ -35,7 +36,7 @@
     "recordTypes.assistant": "933 messages. Carries the agent's prose, its reasoning and every tool call. The message-level info holds modelID, providerID, cost, tokens, finish, and `path` with cwd and root as absolute paths under the account's home directory, which is a reader's problem on a kept record rather than a reason to drop the role.",
     "contentBlocks.text": "257 parts, 418110 bytes, split 198837 user and 164244 assistant. Both halves of the conversation reach deident only through this name.",
     "contentBlocks.reasoning": "803 parts, 308415 bytes of which 101174 are the `text` field itself, and only 8 of the 803 are empty. Checked rather than assumed: the Claude Code precedent, where 7771 thinking blocks measured empty at 0 bytes, does not transfer here. opencode writes real agent prose, short and titled, such as a bolded planning heading. The encrypted half is separate, under metadata.opencode.reasoningEncryptedContent, and read REDACTED in the corpus, which is the dataset's scrub rather than opencode's. Kept, with a real byte cost.",
-    "contentBlocks.tool": "1794 parts, 18236979 bytes, which is 94 percent of the corpus by weight on its own. state.output alone is 8785679 bytes against 418678 for state.input, so the record is overwhelmingly tool output. Tool names measured: read 1019, grep 270, bash 200, glob 133, webfetch 47, apply_patch 42. The call, its status and its shape are what a reader reads; the output is what the model read. shape-only for the reason docs/limits.md gives: with nothing kept there is no cap to set generously.",
+    "contentBlocks.tool": "22,354 parts over 617 documents, and the heaviest thing this format writes. One part holds the whole round trip: `state.input` is the call, `state.output` is what came back. It was shape-only, which dropped both, and that is what the owner's 2026-08-31 ruling on Codex is about -- the arguments carry the id that says whether a read was a re-read of this session's own writing, and the read-back channel never reads the output. Extended here on 2026-08-31 because the reason is harness-independent and leaving it split scored the same corpus two ways: measured, state.input is 7.79 MB against state.output's 152.96 MB, so the arguments are 4.8% of the pair. 82.0% of those inputs carry an absolute path, which is the class tier-0 substitutes; the class no rule reaches is verbatim file content, and that is in the output half, which still goes.",
     "contentBlocks.patch": "76 parts, 29431 bytes. The name says diff and it was checked: there is no diff. The part is {hash, files}, a git object hash plus an array of absolute file paths. So it carries an identifier and a file listing and nothing a reader would read, and the file listing is the attachmentTypes.directory hazard on the Claude Code side, project and client vocabulary at its most concentrated. The agent's actual authored change survives as the apply_patch call under `tool`.",
     "contentBlocks.file": "5 parts, 72683 bytes. Checked for file bodies: there are none. The part is {mime, filename, url, source} where url is a file:// URL under the account's home directory and source.text.value is the @-mention span the user typed, with byte offsets. A path, a filename and a mention offset, which is the pdf_reference and already_read_file situation reached independently: a path is an identifier. The 72683 bytes are the envelope, not content.",
     "contentBlocks.step-start": "930 parts, 182814 bytes. A single `snapshot` field holding a git commit sha. A marker with an identifier on it.",
