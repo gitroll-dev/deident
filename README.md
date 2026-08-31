@@ -1,69 +1,46 @@
 # deident
 
 A CLI that reads your AI-coding-agent session logs, removes the identities, and
-produces a zip you can hand to someone else. Node 20.15+ or 22.2+, standard library
-only, **no npm dependencies and no network calls**: it reads local files, writes
-local files, and nothing about your logs leaves the machine unless you send it.
-Slice 1, depth-0 Claude Code sessions by default, MIT licensed.
+produces a zip you can hand to someone else. Node 20.15+ or 22.2+, standard
+library only, **no npm dependencies and no network calls**: local files in, local
+files out, and nothing leaves the machine unless you send it. Sessions are read
+from `<root>/projects/*/*.jsonl`, depth 0 only. MIT.
 
-**Which harness.** `--agent` selects the reader: `claude-code`, `codex`, `cursor`, `opencode`, `gemini-cli`.
-`claude-code` is the default and the only one with a default location, because
-only its layout was read on a real installation. Every other reader takes
-`--root` and nothing else, so deident never names a directory it guessed.
-**Only `claude-code` exports today.** Every reader can `scan`, and each has a
-retention schema in `schemas/`, but the export re-serializes each line and refuses
-if it does not come back byte for byte. Claude Code's writer emits canonical
-`JSON.stringify`; every other harness measured writes a space after `:` and `,`,
-so 15,714 of 15,714 lines fail that check on a Codex corpus in perfect health.
-`cursor` and `gemini-cli` are blocked twice over, recording no working directory
-anywhere in their logs while deident admits material one directory at a time.
-Nothing is translated between harnesses: every record leaves in its own
-harness's shape with the identities replaced.
+**Your first export will refuse, twice, and both are the design.** `scan` proposes
+`exclude` for every workspace until you say otherwise, and the export will not run
+until you have declared what deident cannot infer from this machine: your name,
+your birth date, a document number. It infers your username, paths, git identity
+and git remotes; nothing on the machine says a given string is your passport
+number. Those go in `~/.deident-private/known-values.json`, or you answer
+`--declare-nothing` once and the manifest records that you did. The gate exists
+because the alternative already happened: an archive whose checks were all green
+shipped 21 identity fields in plaintext for want of that file
+([the story](docs/limits.md#deident-cannot-infer-the-list-of-your-own-literal-values)).
 
-**Your half of it, and the export refuses without it.** deident infers your
-username, your paths, your git identity and your git remotes from this machine.
-It cannot infer that a string is your name, your birth date, your phone number or
-a document number, because nothing on the machine says so. Those go in
-`~/.deident-private/known-values.json`, the export refuses until you either write
-it or say `--declare-nothing` once, and the manifest records which you chose. The
-gate exists because the alternative already happened: an archive whose checks were
-all green shipped 21 identity fields in plaintext for want of that file
-([the form](#run-it), [the story](docs/limits.md#deident-cannot-infer-the-list-of-your-own-literal-values)).
+**Then check the file itself.** `deident verify <zip>` reads the finished archive
+and reports what is STILL in it, which is what "did it work" actually asks and the
+only question the export cannot answer about itself. Both leaks this tool has had
+were found that way, by a person opening the shipped bytes and looking for
+something they already held.
 
-**And when it is written, check the file itself.** `deident verify <zip>` reads
-the finished archive and reports what is STILL in it, which is the question "did
-it work" actually asks and the only one the export cannot answer about itself.
-Both leaks this tool has had were found that way, by a person opening the shipped
-bytes and looking for something they already held.
+**The promise, and its one exception.** Every byte in the archive is either a
+value from a vocabulary this tool defines in its own source, or a line of prose a
+person read on screen. The exception is your tool call parameters, 12.2% and 16.3%
+of the archive on the two corpora measured so far; the export prints the figure
+for yours. What a tool call RETURNED is cut to shape alone on the Claude Code
+path, so a pipeline that greps result bodies for build failures loses that input
+([what one consumer measured that to be worth](docs/limits.md#the-parameters-of-your-tool-calls-are-read-by-nobody)).
 
-**The promise.** Every byte in the archive is either a value from a vocabulary this
-tool defines in its own source, or a line of prose a person read on screen. The one
-exception is your tool call parameters: 12.2% and 16.3% of the archive on the two
-corpora measured so far, and the export prints the figure for yours.
-
-**The cost, plainly, and one consumer has now measured it.** Results leave as
-shape alone, so a pipeline that greps result bodies for build failures loses that
-input; scoring that reads SHAPE is unaffected. On 2026-08-29 an assessment engine
-ran three independent manipulations of the tool material in its own corpus:
-removing 92.2% of it and restoring 130% more landed within 0.002 of each other,
-neither clearing its own null, and removing tool material *raised* two of its
-axes. One consumer, one set of axes, so deident has not changed what it ships
-([the numbers](docs/limits.md#the-parameters-of-your-tool-calls-are-read-by-nobody)).
-
-## What deident does NOT protect against
-
-A tool that only lists its strengths gets over-trusted, and the first surprise
-destroys it permanently. Each line links to its measurement in
-[`docs/limits.md`](docs/limits.md); a live version prints at the moment of export.
-
-- [The residue check proves less than its label.](docs/limits.md#the-residue-check-proves-less-than-its-label) It searches only for entities it already knows about. On a 90-file sample of the development corpus there were 230 distinct email addresses, 228 of them not the user's. Emails have a regex and are swept automatically. **Names do not have a regex.** That is what the semantic pass is for, and why it is mandatory.
-- [The parameters of your tool calls are read by nobody.](docs/limits.md#the-parameters-of-your-tool-calls-are-read-by-nobody) The candidates file is built from prose, so the path you read and the brief you gave a subagent go in front of no reader, and a name appearing only there cannot be declared.
-- [A name touching a letter or a digit is left alone](docs/limits.md#a-name-touching-a-letter-or-a-digit-is-left-alone), and so is [a spelling whose case change alters its length](docs/limits.md#case-insensitive-matching-is-withheld-from-a-few-spellings). [Document numbers need an English or Chinese label.](docs/limits.md#identity-document-numbers-are-found-by-their-label-in-english-and-chinese-only)
-- [Credentials and phone numbers are matched by shape and by label, never by entropy](docs/limits.md#credentials-and-phone-numbers-are-matched-by-shape-and-only-by-shape), and [one with neither is not detected at all](docs/limits.md#a-credential-with-no-listed-prefix-and-no-label-beside-it-is-not-detected) **by the hand-written list**. Put `trufflehog` on your PATH and the export scans the finished archive with it and refuses on a hit: hundreds of maintained detectors, `--no-verification` so no candidate ever leaves the machine, 7s on a 41-entry archive. Without it the export runs exactly as before and prints, every time, that the scan did not run.
-- [Device fingerprint survives](docs/limits.md#device-fingerprint-survives) (model mix, harness version sequence, localhost ports), and [documents you pasted into a prompt are prose](docs/limits.md#verbatim-documents-you-pasted-into-your-own-messages-are-not-detected).
-- [The agent-memory deny-list knows one person's naming convention](docs/limits.md#the-agent-memory-deny-list-matches-filenames-and-knows-one-naming-convention), not a Claude Code universal, and now gates only tool parameters and attachments, since nothing a tool read ships as text.
-- [Export scores are unverified against raw-log scores](docs/limits.md#four-of-six-upstream-scoring-axes-depend-on-rules-that-are-not-published), [subagent transcripts are not exported](docs/limits.md#subagent-and-workflow-transcripts-are-not-exported), and [`review.md` holds raw identity on purpose](docs/limits.md#reviewmd-is-full-of-raw-identity-on-purpose).
-- [deident cannot infer the list of your own literal values](docs/limits.md#deident-cannot-infer-the-list-of-your-own-literal-values) (declare them, below), and [it cannot run the one check that matters on itself](docs/limits.md#the-check-deident-cannot-run-on-itself): both real leaks were found by a person who compared the finished archive against something they already held. That last step is yours.
+**Which harness.** `--agent` selects the reader: `claude-code` (the default, and
+the only one with a default location), `codex`, `cursor`, `opencode`,
+`gemini-cli`. Every other reader takes `--root` and nothing else, so deident never
+names a directory it guessed, and nothing is translated between harnesses: every
+record leaves in its own harness's shape with the identities replaced. **Only
+`claude-code` exports today** — the export re-serializes each line and refuses if
+it does not come back byte for byte, and every other harness measured writes a
+space after `:` and `,`, so 15,714 of 15,714 lines fail that check on a Codex
+corpus in perfect health. `cursor` and `gemini-cli` are blocked twice over,
+recording no working directory anywhere in their logs.
 
 ## Install
 
@@ -114,6 +91,21 @@ A bare string is enough: `{"values": ["1974-11-03", {"kind": "person", "value":
 "Nora Lund"}]}`. The export refuses until that file exists or you answer
 `--declare-nothing` once; the reason is at the top of this page and is not
 repeated here.
+
+## What deident does NOT protect against
+
+A tool that only lists its strengths gets over-trusted, and the first surprise
+destroys it permanently. Each line links to its measurement in
+[`docs/limits.md`](docs/limits.md); a live version prints at the moment of export.
+
+- [The residue check proves less than its label.](docs/limits.md#the-residue-check-proves-less-than-its-label) It searches only for entities it already knows about. On a 90-file sample of the development corpus there were 230 distinct email addresses, 228 of them not the user's. Emails have a regex and are swept automatically. **Names do not have a regex.** That is what the semantic pass is for, and why it is mandatory.
+- [The parameters of your tool calls are read by nobody.](docs/limits.md#the-parameters-of-your-tool-calls-are-read-by-nobody) The candidates file is built from prose, so the path you read and the brief you gave a subagent go in front of no reader, and a name appearing only there cannot be declared.
+- [A name touching a letter or a digit is left alone](docs/limits.md#a-name-touching-a-letter-or-a-digit-is-left-alone), and so is [a spelling whose case change alters its length](docs/limits.md#case-insensitive-matching-is-withheld-from-a-few-spellings). [Document numbers need an English or Chinese label.](docs/limits.md#identity-document-numbers-are-found-by-their-label-in-english-and-chinese-only)
+- [Credentials and phone numbers are matched by shape and by label, never by entropy](docs/limits.md#credentials-and-phone-numbers-are-matched-by-shape-and-only-by-shape), and [one with neither is not detected at all](docs/limits.md#a-credential-with-no-listed-prefix-and-no-label-beside-it-is-not-detected) **by the hand-written list**. Put `trufflehog` on your PATH and the export scans the finished archive with it and refuses on a hit: hundreds of maintained detectors, `--no-verification` so no candidate ever leaves the machine, 7s on a 41-entry archive. Without it the export runs exactly as before and prints, every time, that the scan did not run.
+- [Device fingerprint survives](docs/limits.md#device-fingerprint-survives) (model mix, harness version sequence, localhost ports), and [documents you pasted into a prompt are prose](docs/limits.md#verbatim-documents-you-pasted-into-your-own-messages-are-not-detected).
+- [The agent-memory deny-list knows one person's naming convention](docs/limits.md#the-agent-memory-deny-list-matches-filenames-and-knows-one-naming-convention), not a Claude Code universal, and now gates only tool parameters and attachments, since nothing a tool read ships as text.
+- [Export scores are unverified against raw-log scores](docs/limits.md#four-of-six-upstream-scoring-axes-depend-on-rules-that-are-not-published), [subagent transcripts are not exported](docs/limits.md#subagent-and-workflow-transcripts-are-not-exported), and [`review.md` holds raw identity on purpose](docs/limits.md#reviewmd-is-full-of-raw-identity-on-purpose).
+- [deident cannot infer the list of your own literal values](docs/limits.md#deident-cannot-infer-the-list-of-your-own-literal-values) (declare them, below), and [it cannot run the one check that matters on itself](docs/limits.md#the-check-deident-cannot-run-on-itself): both real leaks were found by a person who compared the finished archive against something they already held. That last step is yours.
 
 ## The four-stage funnel
 

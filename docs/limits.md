@@ -83,8 +83,12 @@ in its own corpus. Removing 92.2% of it moved a person-level ICC to 0.0182;
 restoring 130% more moved it to 0.0170; neither cleared a 0.05 bar, and a
 separate run found that removing tool material *raised* two of its axes. Two
 opposite interventions landing within 0.002 of each other is an absent effect,
-not a small one. That is one consumer on one set of axes, so it is recorded
-here rather than acted on: deident still ships these parameters, and the case
+not a small one. Cited rather than relayed, because the day this was written a
+neighbouring project produced three unfounded citations from memory and this
+paragraph would be the fourth: the pair is `ADOPTION-STEPS.md:584` in
+`raykuo998/ai-maturity-research`, cross-referenced there to `GIGO.md:349-350`,
+and the file-content share is `TOOL-PII.md:17` and `:203` in the same repo. That
+is one consumer on one set of axes, so it is recorded here rather than acted on: deident still ships these parameters, and the case
 for dropping them now rests on a measurement rather than on taste. A second
 independent result would settle it.
 
