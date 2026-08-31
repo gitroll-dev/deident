@@ -345,6 +345,61 @@ export const DENIED_MARKER = (bytes, why) =>
  * memories and local command output ride into a session that has nothing to
  * do with them. Removing it loses no authored content.
  */
+/**
+ * Codex's own injected wrappers, kept apart from INJECTED_SPANS on the rule the
+ * codex schema states: nothing is derived from, mapped onto, or named after
+ * another agent's vocabulary. Claude Code's `<system-reminder>` is not this and
+ * this is not it.
+ *
+ * These arrive as WHOLE `input_text` blocks rather than spans embedded in a
+ * person's sentence, so they are matched by prefix and the block is dropped,
+ * which is safer than running a regex over prose. Measured on a real rollout:
+ * without this the candidates file opens on `<permissions instructions>` and
+ * `<app-context>`, vendor boilerplate the reader is then asked to scan for
+ * third-party names it cannot contain.
+ */
+// Censused rather than guessed, over 704 rollout files, by counting every
+// block-opening marker in a `message` payload. Bytes are what each costs the
+// candidates file, which is the reader's attention:
+//
+//   <skills_instructions>       801   15.75 MB
+//   <permissions instructions>  675    1.51 MB
+//   <app-context>               305    1.43 MB
+//   # AGENTS.md instructions    115    1.75 MB
+//   <subagent_notification>     442    1.05 MB
+//   <codex_internal_context>    205    1.05 MB
+//   <collaboration_mode>        431    0.98 MB
+//   <environment_context>     1,247    0.84 MB
+//   <recommended_plugins>       306    0.64 MB
+//   <heartbeat>                 231    0.64 MB
+//   <model_switch>               22    0.39 MB
+//   <plugins_instructions>      340    0.34 MB
+//   <apps_instructions>         341    0.22 MB
+//
+// TWO MARKERS ARE DELIBERATELY ABSENT, and their absence is the point: `##
+// Memory` (199, 3.30 MB) and `<proposed_plan>` (73, 0.56 MB) may be authored --
+// the first can be a person's own memory file, the second is the agent's
+// written plan, which this schema keeps under `Plan` elsewhere. Dropping
+// something a person wrote is worse than leaving boilerplate in, so an
+// ambiguous marker stays.
+export const CODEX_INJECTED_PREFIXES = Object.freeze([
+  '<environment_context>',
+  '<user_instructions>',
+  '<INSTRUCTIONS>',
+  '<permissions instructions>',
+  '<app-context>',
+  '<skills_instructions>',
+  '<collaboration_mode>',
+  '<recommended_plugins>',
+  '<plugins_instructions>',
+  '<apps_instructions>',
+  '<subagent_notification>',
+  '<codex_internal_context',
+  '<heartbeat>',
+  '<model_switch>',
+  '# AGENTS.md instructions for',
+]);
+
 export const INJECTED_SPANS = Object.freeze([
   /<system-reminder>[^]*?<[/]system-reminder>/g,
   /<local-command-stdout>[^]*?<[/]local-command-stdout>/g,

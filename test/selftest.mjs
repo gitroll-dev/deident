@@ -10268,7 +10268,7 @@ const FIXTURES = [
   // reader knows one storage layout, and two of these four are not even JSONL.
   // ---------------------------------------------------------------------
 
-  ['F234', 'the codex vocabulary is the 34 names its transcripts contain, across two nesting levels', () => {
+  ['F234', 'the codex vocabulary is every name its transcripts contain, across three nesting levels', () => {
     // Measured over 60 Codex sessions, 15714 lines: response_item 8865,
     // event_msg 6627, turn_context 159, session_meta 60, compacted 3. Codex
     // nests a type-tagged union inside a type-tagged line, so a name at either
@@ -10286,32 +10286,27 @@ const FIXTURES = [
       world_state: 'drop', inter_agent_communication_metadata: 'drop',
     };
     const contentBlocks = {
-      // The 2026-08-31 ruling, narrowed the same day to what it was actually
-      // about. It asked for a tool call's ARGUMENTS, which carry the id that
-      // says whether a read was a re-read; it was first applied as `keep` on
-      // five blocks, which carries the output halves too. Measured on 327 raw
-      // rollouts: 92.60 MB of arguments against 5,494.92 MB of output.
-      //
-      // Four names need no new decision, because Codex already separates the
-      // call from its result: function_call and custom_tool_call are arguments
-      // with no output in them, and their `_output` siblings are the reverse.
-      // Two are records Codex merged, and take `args-only`. patch_apply_end
-      // stays shape-only because its `changes` is diff content with file
-      // bodies, which is not a document id.
-      message: 'keep', function_call: 'keep', function_call_output: 'shape-only',
-      reasoning: 'keep', custom_tool_call: 'keep', custom_tool_call_output: 'shape-only',
-      ghost_snapshot: 'drop', web_search_call: 'drop',
-      token_count: 'drop', exec_command_end: 'args-only', agent_reasoning: 'keep',
-      mcp_tool_call_end: 'args-only', agent_message: 'keep', patch_apply_end: 'shape-only',
-      task_started: 'drop', user_message: 'keep', task_complete: 'keep',
-      collab_waiting_end: 'drop', collab_agent_spawn_end: 'keep', collab_close_end: 'keep',
-      entered_review_mode: 'drop', exited_review_mode: 'keep', turn_aborted: 'drop',
-      web_search_end: 'keep', context_compacted: 'drop', thread_rolled_back: 'drop',
-      view_image_tool_call: 'drop', input_text: 'keep', output_text: 'keep',
+      message: "keep", function_call: "keep", function_call_output: "shape-only",
+      reasoning: "keep", custom_tool_call: "keep", custom_tool_call_output: "shape-only",
+      ghost_snapshot: "drop", web_search_call: "drop", token_count: "drop",
+      exec_command_end: "args-only", agent_reasoning: "keep", mcp_tool_call_end: "args-only",
+      agent_message: "keep", patch_apply_end: "shape-only", task_started: "drop",
+      user_message: "keep", task_complete: "keep", collab_waiting_end: "drop",
+      collab_agent_spawn_end: "keep", collab_close_end: "keep", entered_review_mode: "drop",
+      exited_review_mode: "keep", turn_aborted: "drop", web_search_end: "keep",
+      context_compacted: "drop", thread_rolled_back: "drop", view_image_tool_call: "drop",
+      input_text: "keep", output_text: "keep", image_generation_end: "shape-only",
+      compaction: "drop", thread_settings_applied: "drop", item_completed: "keep",
+      sub_agent_activity: "drop", tool_search_output: "shape-only", tool_search_call: "keep",
+      thread_goal_updated: "keep", CommandExecution: "args-only", Plan: "keep",
+      McpToolCall: "args-only", FileChange: "shape-only", Extension: "args-only",
+      Reasoning: "keep", AgentMessage: "keep", UserMessage: "keep",
+      ImageView: "drop", SubAgentActivity: "drop", CollabAgentToolCall: "keep",
+      ContextCompaction: "drop",
     };
     assert.deepEqual(s.recordTypes, recordTypes, 'codex recordTypes drifted from the measured line types');
     assert.deepEqual(s.contentBlocks, contentBlocks, 'codex contentBlocks drifted from the measured payload types');
-    assert.equal(Object.keys(s.contentBlocks).length, 29, 'codex should decide 8 response_item payloads, 19 event_msg payloads and 2 message blocks');
+    assert.equal(Object.keys(s.contentBlocks).length, 49, 'codex should decide every payload name across its three nesting levels');
 
     // Codex has no attachment or system-subtype equivalent. The key is absent
     // from the file rather than present and empty, and the loader must not
@@ -10334,7 +10329,7 @@ const FIXTURES = [
     const withDecision = (d) => Object.entries(s.contentBlocks).filter(([, v]) => v === d).map(([n]) => n).sort();
     assert.deepEqual(
       withDecision('shape-only'),
-      ['custom_tool_call_output', 'function_call_output', 'patch_apply_end'],
+      ['FileChange', 'custom_tool_call_output', 'function_call_output', 'image_generation_end', 'patch_apply_end', 'tool_search_output'],
       'the shape-only set changed',
     );
     // Stated as a literal for the same reason: `args-only` exists to carry a
@@ -10342,7 +10337,7 @@ const FIXTURES = [
     // here silently is a widening that has to be argued for.
     assert.deepEqual(
       withDecision('args-only'),
-      ['exec_command_end', 'mcp_tool_call_end'],
+      ['CommandExecution', 'Extension', 'McpToolCall', 'exec_command_end', 'mcp_tool_call_end'],
       'the args-only set changed',
     );
   }],

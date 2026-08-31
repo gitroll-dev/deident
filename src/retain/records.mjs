@@ -26,6 +26,7 @@ import {
   USER_DENY_REASON,
   DENIED_TEXT,
   INJECTED_SPANS,
+  CODEX_INJECTED_PREFIXES,
 } from './constants.mjs';
 
 // PLAN §3.1. DROP-AFTER-USE types are consumed by cwdtrack at step 4 and
@@ -244,6 +245,196 @@ export function retainRecord(rec, ctx, where) {
 
 const DROPPED = Object.freeze({ keep: false, record: null });
 
+/**
+ * The field that holds a call's ARGUMENTS, for the payloads Codex merged.
+ *
+ * `args-only` exists because Codex writes a call and its result into one
+ * record, so neither `keep` nor `shape-only` says what the ruling asked for.
+ * Which field is the call half is per-payload knowledge and lives here, beside
+ * the code that acts on it, rather than in the schema, which decides POLICY and
+ * should not also carry mechanics.
+ *
+ * F269 asserts every `args-only` name in every schema has an entry here, so the
+ * two cannot drift: a decision with no field to act on would silently emit an
+ * empty record and every check would stay green.
+ */
+const ARGS_FIELD = Object.freeze({
+  // {server, tool, arguments}. The read-back channel reads `arguments` and has
+  // never read `result`, which is 3,989 MB against 17.98 MB on the corpus that
+  // forced this decision.
+  mcp_tool_call_end: ['invocation'],
+  // The command line and how it ended. `aggregated_output` is the 6.1 MB half
+  // and is what this decision drops.
+  exec_command_end: ['command', 'cwd', 'exit_code'],
+  // The same three shapes in Codex's `item_completed` style, which is a
+  // different spelling of the same merge and not a mapping onto the names
+  // above: each is decided in the schema under its own name.
+  CommandExecution: ['command', 'cwd', 'exit_code', 'parsed_cmd'],
+  McpToolCall: ['server', 'tool', 'arguments'],
+  Extension: ['kind', 'query'],
+});
+
+/**
+ * Which of Codex's OWN payload names is a turn, and whose.
+ *
+ * NOT an alias table. Nothing is renamed and no record changes shape: a Codex
+ * record leaves as a Codex record, and these two sets exist only so the
+ * manifest's turn counters have something to count on this harness, the same
+ * way `rec.type === 'user'` serves them on Claude Code. The codex schema's own
+ * note is the rule being respected here -- "nothing here is derived from,
+ * mapped onto, or named after another agent's vocabulary" -- and a reader who
+ * wants the two harnesses unified is the one who gets to decide that.
+ */
+const CODEX_HUMAN = Object.freeze(new Set(['user_message']));
+const CODEX_MACHINE = Object.freeze(new Set(['agent_message', 'task_complete']));
+
+/** The manifest's two turn counters, for a payload that carries a turn. */
+function countTurn(name, role, ctx) {
+  if (CODEX_HUMAN.has(name) || (name === 'message' && role === 'user')) {
+    ctx.stats.userMessages += 1;
+    return;
+  }
+  if (CODEX_MACHINE.has(name) || name === 'message') ctx.stats.assistantMessages += 1;
+}
+
+/**
+ * A Codex `message` payload without the blocks that are injected instruction
+ * text. Nobody wrote them, so nothing authored is lost, and leaving them in
+ * puts vendor boilerplate at the top of the file a person is asked to read.
+ */
+function withoutCodexWrappers(payload, ctx) {
+  if (!Array.isArray(payload.content)) return payload;
+  const kept = payload.content.filter((b) => {
+    const t = b !== null && typeof b === 'object' && typeof b.text === 'string' ? b.text.trim() : null;
+    if (t === null) return true;
+    const injected = CODEX_INJECTED_PREFIXES.some((w) => t.startsWith(w));
+    if (injected) ctx.stats.injectedBytesDropped += Buffer.byteLength(b.text, 'utf8');
+    return !injected;
+  });
+  return kept.length === payload.content.length ? payload : { ...payload, content: kept };
+}
+
+/** Bytes a payload weighs, for the shape-only counter. */
+function payloadBytes(payload) {
+  try {
+    return Buffer.byteLength(JSON.stringify(payload ?? null), 'utf8');
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * One Codex line, retained in Codex's own shape.
+ *
+ * Nothing is translated: the record leaves as `{timestamp, type, payload}` with
+ * the identities replaced, which is what the README promises for every harness.
+ * The decision comes from the same `BLOCK_DECISIONS` table Claude Code's blocks
+ * use, because the codex schema puts its payload vocabulary there.
+ */
+function retainCodexLine(rec, ctx, where) {
+  const payload = rec.payload;
+  if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw unknown(`a ${rec.type} whose payload is not an object`, where, `${rec.type} payload`, rec);
+  }
+
+  // `compacted` carries no payload.type of its own: it is a container whose
+  // `replacement_history` holds records, and the schema's rationale says a
+  // reader must descend into it or ship unredacted user text.
+  if (rec.type === 'compacted') {
+    // `replacement_history` holds PAYLOADS, not lines: measured on a real
+    // rollout, its entries are `{type, id, role, content, ...}` with no
+    // timestamp and no envelope. Handing them to retainRecord asked the
+    // top-level table about a payload name and refused a healthy file by the
+    // wrong table's name, which is worse than refusing: it sends the reader to
+    // look for a record type that does not exist.
+    const history = Array.isArray(payload.replacement_history) ? payload.replacement_history : [];
+    const kept = [];
+    for (const inner of history) {
+      const out = retainCodexPayload(inner, ctx, where);
+      if (out !== null) kept.push(out);
+    }
+    return prune({
+      timestamp: quantise(rec.timestamp),
+      type: rec.type,
+      payload: { replacement_history: kept },
+    });
+  }
+
+  const kept = retainCodexPayload(payload, ctx, where);
+  if (kept === null) return null;
+  return prune({ timestamp: quantise(rec.timestamp), type: rec.type, payload: kept });
+}
+
+/**
+ * One Codex payload, by the decision its own schema records for it.
+ *
+ * Shared by the line reader and by `compacted`, which nests payloads rather
+ * than lines. One implementation because two would disagree, and the one that
+ * ships prose nobody reviewed would be the quiet one.
+ */
+function retainCodexPayload(payload, ctx, where) {
+  if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw unknown('a Codex payload that is not an object', where, 'codex payload', payload);
+  }
+  const name = payload.type;
+  if (typeof name !== 'string') {
+    throw unknown('a Codex payload with no type', where, 'codex payload', payload);
+  }
+  const decision = BLOCK_DECISIONS[name];
+  if (decision === undefined) throw unknown(`payload type "${name}"`, where, `payload ${name}`, payload);
+  if (decision === 'drop') {
+    ctx.stats.dropped += 1;
+    return null;
+  }
+
+  // A container, like response_item one level up. Keeping the wrapper without
+  // descending would carry the item whole and silently override the decision
+  // its own name carries -- which for CommandExecution is 4.17 MB of stdout.
+  if (name === 'item_completed') {
+    const item = payload.item;
+    if (item === undefined || item === null) return prune({ type: name });
+    const inner = retainCodexPayload(item, ctx, where);
+    return inner === null ? null : prune({ type: name, item: inner });
+  }
+
+  let out;
+  if (decision === 'keep') {
+    out = name === 'message' ? withoutCodexWrappers(payload, ctx) : payload;
+  } else if (decision === 'shape-only') {
+    const bytes = payloadBytes(payload);
+    ctx.stats.toolResults += 1;
+    ctx.stats.toolResultBytesDropped += bytes;
+    out = prune({
+      type: name,
+      call_id: typeof payload.call_id === 'string' ? ctx.rewriteUuid(payload.call_id) : null,
+      result_bytes: bytes,
+    });
+  } else if (decision === 'args-only') {
+    const fields = ARGS_FIELD[name];
+    if (fields === undefined) {
+      throw unknown(`payload type "${name}" is args-only and no field is named for it`, where, `payload ${name}`, payload);
+    }
+    const args = {};
+    for (const f of fields) if (payload[f] !== undefined) args[f] = payload[f];
+    ctx.stats.toolResultBytesDropped += Math.max(0, payloadBytes(payload) - payloadBytes(args));
+    ctx.stats.toolUses += 1;
+    out = prune({
+      type: name,
+      call_id: typeof payload.call_id === 'string' ? ctx.rewriteUuid(payload.call_id) : null,
+      ...args,
+    });
+  } else {
+    // drop-counted has no Codex payload today; refusing beats guessing which
+    // placeholder a reader would expect.
+    throw unknown(`payload type "${name}" carries the decision "${decision}", which this reader does not apply`, where, `payload ${name}`, payload);
+  }
+
+  countTurn(name, payload.role, ctx);
+  return out;
+}
+
+
+
 function retainByType(rec, ctx, where) {
   switch (rec.type) {
     case 'user':
@@ -259,6 +450,16 @@ function retainByType(rec, ctx, where) {
       return retainMode(rec, ctx, where);
     case 'system':
       return retainSystem(rec, ctx, where);
+    // Codex writes `{timestamp, type, payload}` and puts the real record in a
+    // second type-tagged union inside `payload`. The line type says only which
+    // union; contentBlocks decides what is in it, exactly as the codex schema's
+    // own note describes. `compacted` is here because it NESTS records in
+    // `replacement_history` and keeping the line without descending would ship
+    // user prose no pass had read.
+    case 'response_item':
+    case 'event_msg':
+    case 'compacted':
+      return retainCodexLine(rec, ctx, where);
     default:
       throw unknown(`top-level record type "${rec.type}"`, where, null, rec);
   }
