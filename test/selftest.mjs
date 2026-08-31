@@ -10283,15 +10283,23 @@ const FIXTURES = [
       world_state: 'drop', inter_agent_communication_metadata: 'drop',
     };
     const contentBlocks = {
-      // Five moved shape-only -> keep on 2026-08-31, on the owner's ruling: the
-      // shape-only decision discarded a tool result's ARGUMENTS along with its
-      // output, and the arguments are what say which document a read was of.
-      // The reason is in the schema's own note.
-      message: 'keep', function_call: 'keep', function_call_output: 'keep',
-      reasoning: 'keep', custom_tool_call: 'keep', custom_tool_call_output: 'keep',
+      // The 2026-08-31 ruling, narrowed the same day to what it was actually
+      // about. It asked for a tool call's ARGUMENTS, which carry the id that
+      // says whether a read was a re-read; it was first applied as `keep` on
+      // five blocks, which carries the output halves too. Measured on 327 raw
+      // rollouts: 92.60 MB of arguments against 5,494.92 MB of output.
+      //
+      // Four names need no new decision, because Codex already separates the
+      // call from its result: function_call and custom_tool_call are arguments
+      // with no output in them, and their `_output` siblings are the reverse.
+      // Two are records Codex merged, and take `args-only`. patch_apply_end
+      // stays shape-only because its `changes` is diff content with file
+      // bodies, which is not a document id.
+      message: 'keep', function_call: 'keep', function_call_output: 'shape-only',
+      reasoning: 'keep', custom_tool_call: 'keep', custom_tool_call_output: 'shape-only',
       ghost_snapshot: 'drop', web_search_call: 'drop',
-      token_count: 'drop', exec_command_end: 'keep', agent_reasoning: 'keep',
-      mcp_tool_call_end: 'keep', agent_message: 'keep', patch_apply_end: 'keep',
+      token_count: 'drop', exec_command_end: 'args-only', agent_reasoning: 'keep',
+      mcp_tool_call_end: 'args-only', agent_message: 'keep', patch_apply_end: 'shape-only',
       task_started: 'drop', user_message: 'keep', task_complete: 'keep',
       collab_waiting_end: 'drop', collab_agent_spawn_end: 'keep', collab_close_end: 'keep',
       entered_review_mode: 'drop', exited_review_mode: 'keep', turn_aborted: 'drop',
@@ -10320,8 +10328,20 @@ const FIXTURES = [
     // which on the measured corpus is mcp_tool_call_end at 7.1 MB and
     // exec_command_end at 6.1 MB, output included. That is a different floor
     // from the Claude Code path, where tool_result is cut entirely.
-    const shapeOnly = Object.entries(s.contentBlocks).filter(([, d]) => d === 'shape-only').map(([n]) => n).sort();
-    assert.deepEqual(shapeOnly, [], 'the shape-only set changed');
+    const withDecision = (d) => Object.entries(s.contentBlocks).filter(([, v]) => v === d).map(([n]) => n).sort();
+    assert.deepEqual(
+      withDecision('shape-only'),
+      ['custom_tool_call_output', 'function_call_output', 'patch_apply_end'],
+      'the shape-only set changed',
+    );
+    // Stated as a literal for the same reason: `args-only` exists to carry a
+    // merged record's arguments and drop its result, and a third name arriving
+    // here silently is a widening that has to be argued for.
+    assert.deepEqual(
+      withDecision('args-only'),
+      ['exec_command_end', 'mcp_tool_call_end'],
+      'the args-only set changed',
+    );
   }],
 
   ['F235', 'the cursor vocabulary is four names, and turn_ended is left undecided on purpose', () => {

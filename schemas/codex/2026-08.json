@@ -2,7 +2,7 @@
   "agent": "codex",
   "version": "2026-08",
   "extractedFrom": "60 Codex session transcripts, 15714 lines, SALT-NLP/SWE-chat",
-  "note": "Codex writes true JSONL, one {timestamp, type, payload} per line. The line's `type` is a container, so it does not identify the record on its own: `response_item` and `event_msg` both carry a second, type-discriminated union in `payload`, and a `message` payload carries a third in `content`. recordTypes therefore decides the five LINE types, and contentBlocks decides all 29 type-discriminated payloads beneath them, the payload unions and the message content blocks alike. Every name across those three levels is distinct, so a lookup is unambiguous; a reader looks up the line type, then the payload type, and both must be decided or the record refuses. Nothing here is derived from, mapped onto, or named after another agent's vocabulary: `function_call` is not `tool_use`, `reasoning` is not `thinking`, and a consumer who wants them unified is the one who gets to decide that. Codex has no equivalent of Claude Code's attachment or system-subtype vocabularies, so those two keys are absent rather than empty.  RULING 2026-08-31: Five tool-result blocks moved from shape-only to keep, on the owner's ruling. shape-only discarded the ARGUMENTS as well as the output, and the arguments carry the document ids that decide whether a read was a re-read of this session's own writing. A research corpus measured one donor at 125,034 shell calls with zero command text and a read-back channel of exactly zero, both artifacts of this decision rather than of his behaviour. The substitution pass already rewrites paths and ids inside kept strings, so keeping these is a redaction problem the tool already solves, not a new exposure.",
+  "note": "Codex writes true JSONL, one {timestamp, type, payload} per line. The line's `type` is a container, so it does not identify the record on its own: `response_item` and `event_msg` both carry a second, type-discriminated union in `payload`, and a `message` payload carries a third in `content`. recordTypes therefore decides the five LINE types, and contentBlocks decides all 29 type-discriminated payloads beneath them, the payload unions and the message content blocks alike. Every name across those three levels is distinct, so a lookup is unambiguous; a reader looks up the line type, then the payload type, and both must be decided or the record refuses. Nothing here is derived from, mapped onto, or named after another agent's vocabulary: `function_call` is not `tool_use`, `reasoning` is not `thinking`, and a consumer who wants them unified is the one who gets to decide that. Codex has no equivalent of Claude Code's attachment or system-subtype vocabularies, so those two keys are absent rather than empty.  RULING 2026-08-31: Five tool-result blocks moved from shape-only to keep, on the owner's ruling. shape-only discarded the ARGUMENTS as well as the output, and the arguments carry the document ids that decide whether a read was a re-read of this session's own writing. A research corpus measured one donor at 125,034 shell calls with zero command text and a read-back channel of exactly zero, both artifacts of this decision rather than of his behaviour. The substitution pass already rewrites paths and ids inside kept strings, so keeping these is a redaction problem the tool already solves, not a new exposure.  RULING 2026-08-31 (b): the ruling above was applied too widely. It was about ARGUMENTS -- the read-back channel needs the target id in `invocation.arguments` and never reads `result` -- and it was implemented as `keep` across five blocks, which carries the output halves too. Measured on one donor's raw rollouts, 327 files: 92.60 MB of arguments against 5,494.92 MB of output, 59 bytes of output per byte of argument. Four names need no new decision because Codex already separates the call from its output (`function_call` and `custom_tool_call` are arguments with no output in them; their `_output` siblings are output with no arguments). Two are merged records and take `args-only`. `patch_apply_end` stays shape-only: its 57.47 MB `changes` is diff content with file bodies, which is not a document id and is the class deident refuses on every other path.",
   "decisions": {
     "recordTypes": {
       "keep": "the line is carried; for the two container types, the payload's own decision governs what survives inside it",
@@ -11,7 +11,8 @@
     "contentBlocks": {
       "keep": "carried",
       "drop": "never written",
-      "shape-only": "structure kept, content discarded"
+      "shape-only": "structure kept, content discarded",
+      "args-only": "the call's own arguments are carried; whatever the same record holds of the result is discarded. For a harness that merges a call with its output into one record, which is the only reason this decision exists."
     }
   },
   "recordTypes": {
@@ -26,18 +27,18 @@
   "contentBlocks": {
     "message": "keep",
     "function_call": "keep",
-    "function_call_output": "keep",
+    "function_call_output": "shape-only",
     "reasoning": "keep",
     "custom_tool_call": "keep",
-    "custom_tool_call_output": "keep",
+    "custom_tool_call_output": "shape-only",
     "ghost_snapshot": "drop",
     "web_search_call": "drop",
     "token_count": "drop",
-    "exec_command_end": "keep",
+    "exec_command_end": "args-only",
     "agent_reasoning": "keep",
-    "mcp_tool_call_end": "keep",
+    "mcp_tool_call_end": "args-only",
     "agent_message": "keep",
-    "patch_apply_end": "keep",
+    "patch_apply_end": "shape-only",
     "task_started": "drop",
     "user_message": "keep",
     "task_complete": "keep",

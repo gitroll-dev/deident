@@ -34,7 +34,13 @@ const SHIPPED_ROOT = path.join(fileURLToPath(new URL('../../', import.meta.url))
 /** Decisions deident actually acts on. Anything else is a typo, not a policy. */
 const RECORD_DECISIONS = Object.freeze(['keep', 'drop', 'drop-after-use']);
 const SIMPLE_DECISIONS = Object.freeze(['keep', 'drop']);
-const BLOCK_DECISIONS_ALLOWED = Object.freeze(['keep', 'drop', 'drop-counted', 'shape-only']);
+// `args-only` is the fourth, and it exists because one harness merges a call
+// and its result into a single record. Splitting the two is the whole of the
+// decision: on the corpus that forced it, `mcp_tool_call_end` carries 17.98 MB
+// of `invocation.arguments` against 3,989 MB of `result`, so `keep` buys the
+// arguments a reader wants at 59 bytes of tool output per byte of argument, and
+// `shape-only` refuses both. See the codex schema's own note for the ruling.
+const BLOCK_DECISIONS_ALLOWED = Object.freeze(['keep', 'drop', 'drop-counted', 'shape-only', 'args-only']);
 
 const SECTIONS = Object.freeze([
   ['recordTypes', RECORD_DECISIONS],

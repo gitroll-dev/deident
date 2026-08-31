@@ -89,10 +89,18 @@ let ATTACHMENT_DROP = Object.freeze(namesWith(SCHEMA.attachmentTypes ?? {}, 'dro
 let SYSTEM_KEEP = Object.freeze(namesWith(SCHEMA.systemSubtypes ?? {}, 'keep'));
 let SYSTEM_DROP = Object.freeze(namesWith(SCHEMA.systemSubtypes ?? {}, 'drop'));
 
-// `shape-only` is a third decision beside keep and drop, and it exists for one
-// block type. Calling it `keep` would put a reviewed decision in this table
-// that no longer describes what happens: the block survives and its payload
-// does not. See retainBlock's tool_result case for the measurement.
+// `shape-only` is a third decision beside keep and drop: the block survives and
+// its payload does not. Calling it `keep` would put a reviewed decision in this
+// table that no longer describes what happens. See retainBlock's tool_result
+// case for the measurement.
+//
+// `args-only` is a fourth, and it is DECLARATIVE TODAY. It exists for a harness
+// that merges a call with its result into one record, and every name carrying it
+// is Codex's. Nothing routes a Codex record here: retainByType has no case for
+// `response_item` and refuses it by name, and the export refuses earlier still at
+// the I1 round-trip. So the decision is recorded for whoever builds that path,
+// and this comment is here so nobody reads the schema and concludes a Codex
+// export currently ships tool arguments. It ships nothing; it does not run.
 let BLOCK_DECISIONS = SCHEMA.contentBlocks;
 
 /**
