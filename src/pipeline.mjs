@@ -823,6 +823,21 @@ export async function runExport(flags, env) {
         `Add values to that file at any time and the next run protects them.`,
     );
   }
+  //  1  resolve the corpus, moved above the declaration gate so the harness is
+  //     known before anything is asked of the person.
+  const corpus = resolveCorpus(env, flags.root, flags.agent);
+  useAgentSchema(corpus.agent.id);
+
+  // Where this sits is the whole point of it.
+  //
+  // Not in `classify`, which scan shares: raising it there refused a SCAN with
+  // a message saying scans work, a check contradicting itself in one breath.
+  // Not after tier admission and not after the declaration gate: both ask the
+  // person to do work -- read review.md and choose workspaces, or sit down and
+  // write out their own passport number -- for a harness with no export path
+  // to spend it on. This is the last point that costs them nothing.
+  if (corpus.agent.retains !== true) throw noRetentionRefusal(corpus.agent);
+
   const declaration = declarationState(saltDir);
   if (!declaration.present) throw undeclaredRefusal(saltDir);
 
@@ -830,10 +845,6 @@ export async function runExport(flags, env) {
   // hand-editing refuses in the first second instead of after the corpus has
   // been read, which is more than ten minutes on a few hundred sessions.
   const dictionary = loadDictionary(saltDir);
-
-  //  1  resolve the corpus
-  const corpus = resolveCorpus(env, flags.root, flags.agent);
-  useAgentSchema(corpus.agent.id);
 
   //  2  read every file, checking I1 on untouched input
   //     3 rides along with 2, because it is the only step that reads raw line
@@ -2529,10 +2540,6 @@ function classify(loaded, saved, flags, probe = makeRemoteProbe()) {
   // row would admit the lot. Refused here, at the one place every command that
   // admits material passes through, rather than at each of them.
   if (loaded.agent.cwdSource === null) throw noCwdRefusal(loaded.agent);
-  // Second of the two per-harness blockers, answered in the same breath: a
-  // reader and a schema are not an export path, and the difference used to
-  // surface three stages later as a refusal about a record type.
-  if (loaded.agent.retains !== true) throw noRetentionRefusal(loaded.agent);
   const groups = groupSessions(loaded.sessions);
   const decisions = classifyWorkspaces(groups, saved, {
     includeDenied: flags.includeDenied,

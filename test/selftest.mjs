@@ -12348,6 +12348,34 @@ const FIXTURES = [
       'the set of readable-but-not-exportable harnesses changed',
     );
 
+    // (4b) WHERE the gate sits, asserted by behaviour rather than by reading
+    //      the source, because both wrong placements pass a source grep. In
+    //      `classify` it refuses a SCAN with a message saying scans work; after
+    //      tier admission it makes a person read review.md and choose
+    //      workspaces before telling them the harness has no export path.
+    {
+      const root = tmpdir();
+      const logs = path.join(root, 'logs');
+      fs.mkdirSync(logs, { recursive: true });
+      fs.writeFileSync(
+        path.join(logs, 'a.jsonl'),
+        `${JSON.stringify({ info: { id: 's1', directory: '/tmp/x' }, messages: [{ info: { role: 'user' }, parts: [{ type: 'text', text: 'hi' }] }] })}${NL}`,
+        'utf8',
+      );
+      const out = path.join(root, 'out');
+      const saltDir = path.join(root, 'salt');
+      const scan = runCli(['scan', '--agent', 'opencode', '--root', logs, '--out', out, '--salt-dir', saltDir]);
+      assert.equal(scan.code, 0, `a harness with no retention branch cannot be scanned:${NL}${scan.out}`);
+      const exp = runCli(['export', '--agent', 'opencode', '--root', logs, '--out', out, '--salt-dir', saltDir]);
+      assert.notEqual(exp.code, 0, 'the export of a harness with no retention branch succeeded');
+      assert.match(exp.out, /cannot export them yet/, `the export refused for some other reason:${NL}${exp.out}`);
+      assert.ok(
+        !/review\.md/.test(exp.out),
+        `the refusal arrived after asking the person to edit review.md:${NL}${exp.out}`,
+      );
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+
     // (5) Every `args-only` name in every schema has a field named for it.
     //     A decision with no mechanics emits an empty record and every check
     //     stays green, which is the same silence in a smaller place.
