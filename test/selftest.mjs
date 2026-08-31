@@ -126,6 +126,7 @@ import { serializeSessions, resolveOutDir, sanitizeEntryName, stripMintedSpellin
 import { RefusalError, ReadError, UsageError } from '../src/cli/errors.mjs';
 import { verifyArchive } from '../src/verify/archive.mjs';
 import { buildZip, readZip, readZipFile, writeZip, MAX_ENTRIES } from '../src/output/zip.mjs';
+import { MANIFEST_ENTRY } from '../src/output/manifest.mjs';
 
 // Both sides of every fold pair must be Han and nothing else. A pair that
 // slipped in a lookalike from another block would fold text nobody asked about.
@@ -3435,7 +3436,12 @@ const FIXTURES = [
       '--entities', path.join(root, 'ents.json'),
     ]);
     assert.equal(exported.code, 0, exported.out);
+    // Sessions only. The archive also carries one non-session entry, the
+    // manifest that tells a recipient what was dropped, and it is JSON rather
+    // than JSONL: reading every entry as lines of records made this fixture
+    // fail on a file it is not about.
     const bytes = readZipFile(oneArchive(out))
+      .filter((e) => e.name !== MANIFEST_ENTRY)
       .map((e) => e.data)
       .join(NL);
 
@@ -12417,6 +12423,75 @@ const FIXTURES = [
         );
       }
     }
+  }],
+
+  // F270. The archive says what it dropped, and says nothing else.
+  //
+  // Before this entry the archive held sessions and nothing else, so a
+  // recipient could not tell a complete export from a gutted one. Every count
+  // deident produces stayed on the donor's machine. Measured the day it was
+  // added: a donor's archive carried 2,478 `patch_apply_end` records and ZERO
+  // `item_completed`, while his raw logs held 172 of the latter and his shell
+  // channel was inside them. He had passed `--skip-unknown-types` on a deident
+  // that did not yet read that shape; the export finished green; the count of
+  // what went was on his screen and nowhere else, and two people spent an
+  // evening reconstructing it from what survived.
+  //
+  // The second half is the one that has to keep being true. Every other file
+  // deident writes beside the zip is deliberately un-sendable, so a new entry
+  // INSIDE the zip carries the burden of proof. "Type names and integers only"
+  // is a claim, and a claim gets a check.
+  ['F270', 'the archive carries what was dropped, and no spelling of anyone in it', () => {
+    const root = tmpdir();
+    const out = path.join(root, 'out');
+    const saltDir = path.join(root, 'salt');
+    const built = writeCorpus(root, { unknownType: true });
+    assert.equal(runCli(['scan', '--root', root, '--out', out, '--salt-dir', saltDir], CORPUS_USER_ENV).code, 0);
+    setTier(path.join(out, 'review.md'), 'alpha', 'redact');
+    primeSemanticPass(root, out, saltDir, CORPUS_USER_ENV, ['--skip-unknown-types']);
+    const r = runCli([
+      'export', '--skip-unknown-types', '--skip-secret-scan', '--root', root, '--out', out,
+      '--salt-dir', saltDir, '--entities', path.join(root, 'ents.json'),
+    ], CORPUS_USER_ENV);
+    assert.equal(r.code, 0, r.out);
+
+    const entries = readZipFile(oneArchive(out));
+    const label = entries.find((e) => e.name === MANIFEST_ENTRY);
+    assert.ok(label !== undefined, `the archive carries no manifest: ${entries.map((e) => e.name).join(', ')}`);
+
+    const m = JSON.parse(label.data);
+    assert.equal(m.tool, 'deident');
+    assert.ok(typeof m.version === 'string' && m.version.length > 0, 'the manifest does not say which deident wrote it');
+    assert.equal(m.undecidedTypesChecked, true, '"checked and found none" and "nobody checked" must not read the same');
+
+    // The line it exists for. This corpus has a type nobody decided and the run
+    // dropped it on request, so the archive has to say which and how many.
+    assert.ok(
+      m.undecidedTypesDropped.length > 0,
+      'a run that dropped an undecided type reported none, which is the silence this entry ends',
+    );
+    for (const row of m.undecidedTypesDropped) {
+      assert.equal(typeof row.type, 'string');
+      assert.equal(typeof row.records, 'number');
+    }
+
+    // And nothing else. Every real spelling this corpus contains must be absent
+    // from the manifest, checked against the corpus's own values rather than a
+    // list written here, so a new field cannot pass by not being thought of.
+    const forbidden = [CORPUS_USER, built.cwd, built.denied, built.private, 'Nora Lund', 'alpha'];
+    for (const needle of forbidden) {
+      assert.ok(
+        !label.data.includes(needle),
+        `the archive manifest carries "${needle}", which is the person's own text and not a type name`,
+      );
+    }
+    // Nor any pseudonym: a token would mean an entity reached it, which is the
+    // same leak one substitution later.
+    assert.ok(
+      !/[A-Z]+_[A-Z]+_\d+/.test(label.data),
+      `the archive manifest carries a minted pseudonym:${NL}${label.data}`,
+    );
+    fs.rmSync(root, { recursive: true, force: true });
   }],
 
 ];

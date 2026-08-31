@@ -91,6 +91,7 @@ import { scanForSecrets } from './verify/secretscan.mjs';
 import { sweepDenied } from './verify/sweep.mjs';
 import { writeZip, readZipFile, safeUnlink } from './output/zip.mjs';
 import { sendDir, manifestPath, writeSendManifest } from './output/sendable.mjs';
+import { archiveManifest, MANIFEST_ENTRY } from './output/manifest.mjs';
 import { toolUseNote, userTurnNote } from './verify/toolevents.mjs';
 import { writePreview } from './output/preview.mjs';
 import { EXAMPLES_PER_REPORT, MIN_REPLAY_MATCH_CHARS } from './retain/constants.mjs';
@@ -1395,7 +1396,24 @@ export async function runExport(flags, env) {
   const zipPath = path.join(sendDir(outDir), `deident-export-${today()}.zip`);
   const mapPath = path.join(outDir, EXPORT_MAP_FILENAME);
   try {
-    const written = writeZip(serialized.entries, zipPath);
+    // One entry that is not a session, and the archive had none before.
+    //
+    // A recipient could not tell a complete export from a gutted one: every
+    // count deident produces stayed on the donor's machine, in the terminal and
+    // in WHAT-TO-SEND.txt. Measured the day this was added, a donor's archive
+    // carried 2,478 patch_apply_end records and zero item_completed while his
+    // raw logs held 172 of the latter, which is where his shell channel was.
+    // The count of what went was on his screen and nowhere else.
+    //
+    // Written HERE rather than into `serialized.entries` above so the residue
+    // scan's input stays exactly the session bytes it was measured against. It
+    // is still covered by both gates whose subject is the finished file -- the
+    // output deny sweep and the credential scan re-open the zip -- and F270
+    // asserts it carries no spelling from the entity table, because "carries no
+    // user text by construction" is a claim, and a claim gets a check.
+    const archiveNote = archiveManifest(manifest, corpus.agent, report.VERSION);
+    const entries = [...serialized.entries, { name: archiveNote.name, data: archiveNote.body }];
+    const written = writeZip(entries, zipPath);
 
     // The last gate, and the only one whose subject is the file a recipient
     // opens. Every other check runs over `serialized.allBytes`, a string

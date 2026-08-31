@@ -144,7 +144,7 @@ documents are not ([the full list, and what a tool result leaves as](docs/scope.
 
 ## Development
 
-`node deident.js --selftest` runs 265 fixtures on plain `node:assert`, no framework,
+`node deident.js --selftest` runs 266 fixtures on plain `node:assert`, no framework,
 in `test/selftest.mjs`; each catches a specific bug, named in the fixture. Section
 numbers in the source refer to `BRIEF.md` and `PLAN.md`. Never commit a session log,
 an export, a preview diff or the salt; `.gitignore` covers all of them.
