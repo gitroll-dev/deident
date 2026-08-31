@@ -68,6 +68,9 @@ import {
 } from '../src/policy/knownvalues.mjs';
 import { limitLines } from '../src/cli/limits.mjs';
 import { readSession, nestingDepth } from '../src/corpus/reader.mjs';
+import { parseLoss } from '../src/corpus/lossless.mjs';
+import * as codexAgent from '../src/corpus/agents/codex.mjs';
+import * as claudeAgent from '../src/corpus/agents/claude-code.mjs';
 import { probeCaseFolding, setCaseFolding, caseFolding, normalizeCwd } from '../src/corpus/cwdtrack.mjs';
 import { uncoveredNameParts } from '../src/entities/probe.mjs';
 import { resolveRoot, resolveCorpus } from '../src/corpus/root.mjs';
@@ -12203,6 +12206,76 @@ const FIXTURES = [
       true,
       'an identifier that merely looks minted is not one',
     );
+  }],
+
+  // F268. I1 asks one question in two forms, and the form is the writer's.
+  //
+  // Byte-identity is the strong form and is free where the writer emits
+  // canonical JSON. Held against a writer we do not control it asks for
+  // something deident never needed -- it emits its own serialization, not the
+  // input's bytes -- and refuses over a number's spelling: measured on 378,347
+  // real Codex lines, 45.48% differ and every one is `32.0` against `32`, with
+  // zero whitespace differences, zero duplicate keys, and zero lines whose
+  // VALUE changed. That refusal is what stopped Codex being exportable at all.
+  //
+  // The question underneath is whether the parse saw everything in the file,
+  // and exactly one thing can make it not have: a duplicate key, which
+  // JSON.parse collapses before any walker can see it. Both directions are
+  // pinned, because a check that passes everything is not a check.
+  ['F268', 'a non-canonical writer is held to what I1 is for, and a lost key still refuses', () => {
+    // (1) The weak form accepts what only differs in spelling, and the strong
+    //     form refuses the same line. If these ever agree, one of them is not
+    //     doing its job.
+    const spelled = '{"a":32.0,"b": 1}';
+    const parsed = JSON.parse(spelled);
+    assert.notEqual(JSON.stringify(parsed), spelled, 'the sample no longer differs from canonical');
+    assert.equal(parseLoss(spelled, parsed), null, 'a number respelled is not a loss');
+
+    // (2) A duplicate key IS a loss, and it is the only one. The parse keeps
+    //     the last value and the first is gone with nothing to see.
+    const dup = '{"a":1,"a":2}';
+    const dupParsed = JSON.parse(dup);
+    assert.deepEqual(dupParsed, { a: 2 }, 'the runtime stopped collapsing duplicate keys');
+    const why = parseLoss(dup, dupParsed);
+    assert.ok(why !== null, 'a duplicate key passed the check that exists for it');
+    assert.match(why, /duplicate object key/, `the reason does not name the loss: ${why}`);
+
+    // (3) Nested, because a real record is nested and a counter that only
+    //     looks at the top level would pass this.
+    const nested = '{"payload":{"x":{"k":1,"k":2}}}';
+    assert.ok(parseLoss(nested, JSON.parse(nested)) !== null, 'a duplicate key below the top level is not seen');
+
+    // (4) A key-shaped string that is a VALUE is not a key. Counting `"..."`
+    //     followed by anything and calling it a key would over-count here and
+    //     refuse a healthy line.
+    for (const ok of ['{"a":"b:c"}', '{"a":["x:y","z"]}', '{"a":"say \\"hi\\": now"}', '[]', '{}', '"plain"', '17']) {
+      assert.equal(parseLoss(ok, JSON.parse(ok)), null, `refused a line that loses nothing: ${ok}`);
+    }
+
+    // (5) The reader routes by the writer, not by a flag a caller passes for
+    //     convenience: a reader that says nothing gets the STRONG check, so a
+    //     new harness cannot inherit the weaker one by omission.
+    const root = tmpdir();
+    const f = path.join(root, 'x.jsonl');
+    fs.writeFileSync(f, `${spelled}${NL}`, 'utf8');
+    assert.equal(readSession(f, { keepRaw: false }).roundTripFailures.length, 1, 'the default stopped being byte-identity');
+    assert.equal(
+      readSession(f, { keepRaw: false, canonicalJson: false }).roundTripFailures.length,
+      0,
+      'the non-canonical form still refuses a respelled number',
+    );
+    fs.writeFileSync(f, `${dup}${NL}`, 'utf8');
+    assert.equal(
+      readSession(f, { keepRaw: false, canonicalJson: false }).roundTripFailures.length,
+      1,
+      'the non-canonical form let a duplicate key through',
+    );
+    fs.rmSync(root, { recursive: true, force: true });
+
+    // (6) And the harness that needs it says so itself, so the two cannot
+    //     drift: codex declares canonicalJson false and claude-code true.
+    assert.equal(codexAgent.canonicalJson, false, 'codex now claims canonical JSON');
+    assert.equal(claudeAgent.canonicalJson, true, 'claude-code stopped claiming canonical JSON');
   }],
 
 ];

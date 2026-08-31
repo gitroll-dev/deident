@@ -41,7 +41,10 @@ export const cwdSource = null;
 export const enumerate = walkSessions;
 
 export function readSession(filePath, opts = {}) {
-  return readJsonl(filePath, opts);
+  // This writer is not canonical, so the round-trip check asks whether the
+  // parse lost anything rather than whether the bytes match ours. See
+  // `canonicalJson` above and corpus/lossless.mjs for what that trades.
+  return readJsonl(filePath, { ...opts, canonicalJson });
 }
 
 /**

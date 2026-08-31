@@ -7,6 +7,7 @@
 // fail to round-trip (BRIEF §4.7b), and run late it detects nothing.
 
 import fs from 'node:fs';
+import { parseLoss } from './lossless.mjs';
 import { ReadError, RefusalError } from '../cli/errors.mjs';
 import { MAX_RECORD_DEPTH } from '../retain/constants.mjs';
 
@@ -27,6 +28,9 @@ const REPLACEMENT_CHAR = String.fromCharCode(0xfffd);
  */
 export function readSession(filePath, opts = {}) {
   const skip = opts.skipUnreadable === true;
+  // Default true: a caller that says nothing gets the strong check, so a new
+  // reader has to opt out deliberately rather than inherit the weaker one.
+  const canonicalJson = opts.canonicalJson !== false;
   const keepRaw = opts.keepRaw !== false;
   const inspect = typeof opts.inspect === 'function' ? opts.inspect : null;
 
@@ -127,9 +131,26 @@ export function readSession(filePath, opts = {}) {
 
     // I1. Recorded rather than thrown here so the caller can report every
     // failing line at once; runAllChecks turns a non-empty list into a refusal.
+    //
+    // Two forms of one question, chosen by the writer. Byte-identity is the
+    // strong form and is free where the writer emits canonical JSON, so Claude
+    // Code keeps it. For any other writer it asks for something deident never
+    // needed -- it emits its own serialization, not these bytes -- and refuses
+    // over a number's spelling: measured on 378,347 Codex lines, 45.48% differ
+    // and every one is `32.0` against `32`, with zero whitespace differences,
+    // zero duplicate keys and zero values that changed. `parseLoss` asks the
+    // question I1 exists for, which is whether the parse saw everything.
+    //
+    // What only the strong form catches is whitespace and key order. Neither
+    // can carry a user's text, and that trade is stated in lossless.mjs.
     try {
-      if (JSON.stringify(value) !== line) {
-        roundTripFailures.push(Object.freeze({ file: filePath, line: lineNo }));
+      if (canonicalJson) {
+        if (JSON.stringify(value) !== line) {
+          roundTripFailures.push(Object.freeze({ file: filePath, line: lineNo }));
+        }
+      } else {
+        const why = parseLoss(line, value);
+        if (why !== null) roundTripFailures.push(Object.freeze({ file: filePath, line: lineNo, why }));
       }
     } catch (err) {
       // Same rule as the parse above: a record too deep to re-serialize is a
