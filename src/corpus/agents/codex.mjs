@@ -22,6 +22,9 @@
 import { readSession as readJsonl } from '../reader.mjs';
 import { walkSessions } from './shared.mjs';
 
+/** A retention branch exists: retainCodexLine, added once the schema had one. */
+export const retains = true;
+
 export const id = 'codex';
 export const label = 'Codex CLI';
 export const sessionsDir = (root) => root;

@@ -25,6 +25,9 @@
 
 import { readDocument, walkSessions, constantCwd } from './shared.mjs';
 
+/** No retention branch. Blocked on cwd first (see `cwdSource`). */
+export const retains = false;
+
 export const id = 'gemini-cli';
 export const label = 'Gemini CLI';
 export const sessionsDir = (root) => root;

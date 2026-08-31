@@ -92,6 +92,45 @@ export function noCwdRefusal(agent) {
   });
 }
 
+/**
+ * The refusal for an agent deident can READ but has no retention branch for.
+ *
+ * Raised at the same early point as the cwd refusal and for the same reason: a
+ * person should learn in the first second, not after a scan, a review and a
+ * semantic pass, and not from a message about a record type that is a symptom.
+ *
+ * Before this existed, the answer was whatever the retention table happened to
+ * say when a foreign record reached it. For Codex that was a refusal naming
+ * `event_msg`, which is a real type and not the problem. For opencode it is
+ * worse: its record types are `user` and `assistant`, the same names Claude
+ * Code uses, so its records are judged by another harness's vocabulary and the
+ * failure has no name at all.
+ */
+export function noRetentionRefusal(agent) {
+  return new RefusalError(`deident can read ${agent.label} sessions but cannot export them yet`, {
+    why: [
+      `Every record type in an export needs a reviewed decision, and ${agent.label} has`,
+      'a reader and a schema but no code that applies them to its own record shape.',
+      '',
+      'This is stated here rather than discovered three stages later. Running the',
+      'export anyway would stop at whatever the retention table said about a record',
+      'it was never written for, which names a symptom and not this.',
+      '',
+      `deident can scan, list and count ${agent.label} sessions today.`,
+    ],
+    remedies: [
+      { label: 'List the record shapes it would have to decide', command: `deident types --agent ${agent.id} --root <path>` },
+      { label: 'Ask for the path to be built', command: 'file an issue against deident' },
+    ],
+    detail: { agent: agent.id },
+  });
+}
+
+/** The agents deident can read but not export, by id. */
+export function noRetentionAgents() {
+  return AGENT_IDS.filter((name) => AGENTS[name].retains !== true);
+}
+
 /** The refusal for an agent that has no default path and was given no --root. */
 export function rootRequiredRefusal(agent) {
   return new RefusalError(`--root is required for ${agent.label}`, {

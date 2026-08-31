@@ -21,6 +21,13 @@
 import { readSession as readJsonl } from '../reader.mjs';
 import { walkSessions, constantCwd } from './shared.mjs';
 
+/**
+ * No retention branch. Blocked on cwd first (see `cwdSource`), so this has
+ * never been reachable, and it is declared rather than left to be found at
+ * the moment someone supplies a cwd some other way.
+ */
+export const retains = false;
+
 export const id = 'cursor';
 export const label = 'Cursor';
 export const sessionsDir = (root) => root;

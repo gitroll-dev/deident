@@ -22,6 +22,15 @@
 
 import { readDocument, walkSessions, constantCwd } from './shared.mjs';
 
+/**
+ * No retention branch, and this one is the dangerous shape: opencode names
+ * its record types `user` and `assistant`, which are Claude Code's names
+ * too. Its records reach the same table and are judged by another
+ * harness's vocabulary -- the exact defect this field exists to make
+ * visible. It states a cwd, so nothing else stops it.
+ */
+export const retains = false;
+
 export const id = 'opencode';
 export const label = 'opencode';
 export const sessionsDir = (root) => root;

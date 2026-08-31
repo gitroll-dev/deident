@@ -9,6 +9,20 @@ import path from 'node:path';
 import { readSession as readJsonl } from '../reader.mjs';
 import { resolveLineCwd as trackLineCwd } from '../cwdtrack.mjs';
 
+/**
+ * A retention branch exists for this harness's own record shape.
+ *
+ * Declared rather than inferred, and F269 checks the declaration against
+ * the code by retaining one record of this harness's shape. The bug this
+ * exists for has fired four times in one project in one day, in four
+ * different files, always the same way: a reader is added, a schema is
+ * written, and the code that ACTS on records still only knows one
+ * harness's shape. It never announces itself. It arrives as an empty
+ * result or a refusal naming a type that is not the problem, and someone
+ * spends an hour before finding out the path was never built.
+ */
+export const retains = true;
+
 export const id = 'claude-code';
 export const label = 'Claude Code';
 

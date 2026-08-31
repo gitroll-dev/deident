@@ -40,7 +40,7 @@ import { checkDeclaredValues } from '../src/verify/declared.mjs';
 import { scanForSecrets, secretScanLine, SCANNER } from '../src/verify/secretscan.mjs';
 import { residualScan, startsInsideEscape, jsonEscaped } from '../src/verify/residual.mjs';
 import { distillToolResult, retainToolUseResult } from '../src/retain/toolresult.mjs';
-import { newRetentionContext, retainRecord, quantise, rewriteUuidsInRecord, deniedReason,
+import { useAgentSchema, newRetentionContext, retainRecord, quantise, rewriteUuidsInRecord, deniedReason,
   RETENTION_TABLE,
 } from '../src/retain/records.mjs';
 import { resolveLineCwd, cwdChangeFrom } from '../src/corpus/cwdtrack.mjs';
@@ -74,7 +74,7 @@ import * as claudeAgent from '../src/corpus/agents/claude-code.mjs';
 import { probeCaseFolding, setCaseFolding, caseFolding, normalizeCwd } from '../src/corpus/cwdtrack.mjs';
 import { uncoveredNameParts } from '../src/entities/probe.mjs';
 import { resolveRoot, resolveCorpus } from '../src/corpus/root.mjs';
-import { selectAgent, noCwdAgents, AGENT_IDS, DEFAULT_AGENT } from '../src/corpus/agents.mjs';
+import { selectAgent, noCwdAgents, noRetentionAgents, AGENT_IDS, DEFAULT_AGENT } from '../src/corpus/agents.mjs';
 import {
   setCommand,
   renderRefusal,
@@ -12271,6 +12271,98 @@ const FIXTURES = [
     //     drift: codex declares canonicalJson false and claude-code true.
     assert.equal(codexAgent.canonicalJson, false, 'codex now claims canonical JSON');
     assert.equal(claudeAgent.canonicalJson, true, 'claude-code stopped claiming canonical JSON');
+  }],
+
+  // F269. THE DECLARATION IS CHECKED AGAINST THE CODE, because otherwise
+  // `retains` is a comment anyone can set to true without building anything,
+  // and the failure it is meant to prevent is silent by construction.
+  //
+  // The defect this guards fired four times in one project in one day, in four
+  // separate files, always the same shape: a reader is added, a schema is
+  // written, and the code that ACTS on records still knows one harness only.
+  // It never announces itself. It arrives as an empty result, or as a refusal
+  // naming a record type that is a symptom rather than the cause, and the
+  // worst case is a harness whose type names COLLIDE with another's -- opencode
+  // calls its records `user` and `assistant`, exactly as Claude Code does -- so
+  // foreign records are judged by the wrong vocabulary with nothing to see.
+  ['F269', 'every harness declares whether it can be exported, and the declaration is true', () => {
+    const declared = AGENT_IDS.map((id) => [id, selectAgent(id)]);
+    assert.ok(declared.length >= 5, 'the registry shrank; this fixture is meant to be total');
+
+    for (const [id, agent] of declared) {
+      // (1) Declared at all. A new reader that forgets this is a new reader
+      //     nobody decided about, which is the state this fixture ends.
+      assert.equal(typeof agent.retains, 'boolean', `${id} does not declare whether it can be exported`);
+
+      const schema = loadSchema(id);
+      const kept = Object.entries(schema.recordTypes).filter(([, d]) => d === 'keep').map(([n]) => n);
+      // The retention module holds one schema at a time, so it has to be told
+      // whose records it is about to be handed. Doing it here is the same thing
+      // the export does, and forgetting it is how a harness gets judged by
+      // another's vocabulary -- the defect this fixture is about.
+      useAgentSchema(id);
+      assert.ok(kept.length > 0, `${id} keeps no record type, so its schema decides nothing`);
+
+      // (2) The declaration is TRUE in the direction it claims. An agent that
+      //     says it can be exported must have a retention branch for every
+      //     record type its own schema keeps: not "does not crash", but "is
+      //     not refused as a type nobody decided".
+      for (const type of kept) {
+        const ctx = newRetentionContext((u) => u);
+        let refusedAsUnknown = false;
+        try {
+          retainRecord({ type }, ctx, { file: `${id}.jsonl`, line: 1 });
+        } catch (err) {
+          // Any other refusal is this record being empty, which is fine: the
+          // question is only whether the TYPE has somewhere to go.
+          refusedAsUnknown = err instanceof RefusalError && /top-level record type/.test(err.reason);
+        }
+        if (agent.retains) {
+          assert.ok(
+            !refusedAsUnknown,
+            `${id} declares it can be exported and its own record type "${type}" has no retention branch`,
+          );
+        }
+      }
+    }
+
+    // Leave the module as the rest of the suite expects to find it.
+    useAgentSchema('claude-code');
+
+    // (3) And the gate is actually raised. A declaration nothing consults is a
+    //     comment; this asserts the export path reads it, by name, so removing
+    //     the check fails here rather than in a donor's hands.
+    const src = fs.readFileSync(fileURLToPath(new URL('../src/pipeline.mjs', import.meta.url)), 'utf8');
+    assert.match(src, /retains !== true/, 'the export path stopped consulting the retention declaration');
+
+    // (4) Both lists are stated, so a harness moving between them is a visible
+    //     change rather than a quiet one.
+    assert.deepEqual(
+      AGENT_IDS.filter((id) => selectAgent(id).retains === true).sort(),
+      ['claude-code', 'codex'],
+      'the set of exportable harnesses changed',
+    );
+    assert.deepEqual(
+      noRetentionAgents().sort(),
+      ['cursor', 'gemini-cli', 'opencode'],
+      'the set of readable-but-not-exportable harnesses changed',
+    );
+
+    // (5) Every `args-only` name in every schema has a field named for it.
+    //     A decision with no mechanics emits an empty record and every check
+    //     stays green, which is the same silence in a smaller place.
+    const argsField = fs.readFileSync(fileURLToPath(new URL('../src/retain/records.mjs', import.meta.url)), 'utf8');
+    for (const id of AGENT_IDS) {
+      const blocks = loadSchema(id).contentBlocks ?? {};
+      for (const [name, d] of Object.entries(blocks)) {
+        if (d !== 'args-only') continue;
+        assert.match(
+          argsField,
+          new RegExp(`\\b${name}:\\s*\\[`),
+          `${id} decides "${name}" args-only and ARGS_FIELD names no field for it`,
+        );
+      }
+    }
   }],
 
 ];

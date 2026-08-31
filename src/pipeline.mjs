@@ -19,7 +19,7 @@ import { estimateTokens, tokenCost } from './cli/tokens.mjs';
 import { resolveCorpus, corpusDateRange } from './corpus/root.mjs';
 import { roundTripRefusal, nestingError } from './corpus/reader.mjs';
 import { cwdChangeFrom } from './corpus/cwdtrack.mjs';
-import { noCwdRefusal } from './corpus/agents.mjs';
+import { noCwdRefusal, noRetentionRefusal } from './corpus/agents.mjs';
 import {
   classifyWorkspaces,
   summarizeTiers,
@@ -2529,6 +2529,10 @@ function classify(loaded, saved, flags, probe = makeRemoteProbe()) {
   // row would admit the lot. Refused here, at the one place every command that
   // admits material passes through, rather than at each of them.
   if (loaded.agent.cwdSource === null) throw noCwdRefusal(loaded.agent);
+  // Second of the two per-harness blockers, answered in the same breath: a
+  // reader and a schema are not an export path, and the difference used to
+  // surface three stages later as a refusal about a record type.
+  if (loaded.agent.retains !== true) throw noRetentionRefusal(loaded.agent);
   const groups = groupSessions(loaded.sessions);
   const decisions = classifyWorkspaces(groups, saved, {
     includeDenied: flags.includeDenied,
